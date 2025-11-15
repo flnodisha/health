@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AI Smart Health Monitor — Voice Input (Fixed)</title>
+  <title>AI Smart Health Monitor — Detailed Report</title>
   <style>
     :root{--accent:#0b6efd}
     html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial}
@@ -23,15 +23,19 @@
     #loading{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);flex-direction:column;gap:12px;z-index:9999}
     .spinner{width:54px;height:54px;border-radius:50%;border:6px solid rgba(255,255,255,0.12);border-top-color:var(--accent);animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    #report{position:absolute;inset:40px;background:#fff;color:#111;border-radius:12px;padding:18px;overflow:auto;display:none;z-index:10000}
+    #report{position:absolute;inset:20px;background:#fff;color:#111;border-radius:12px;padding:18px;overflow:auto;display:none;z-index:10000}
     #report img{max-width:160px;border-radius:8px}
+    .row{display:flex;gap:12px}
     .small{font-size:13px;color:#555}
     .recIndicator{width:12px;height:12px;border-radius:50%;background:#d9534f;margin-right:8px;box-shadow:0 0 6px rgba(217,83,79,0.6)}
-    /* Camera ready indicator */
     #cameraReady{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;z-index:2000}
     #cameraReady.ready{background:rgba(0,128,0,0.45);border-color:rgba(0,255,0,0.12)}
-    /* ensure overlay bubbles don't block controls */
     .overlay .bubble { pointer-events: none; }
+    .diet-day{background:#f6f8fb;padding:10px;border-radius:8px;margin-bottom:8px}
+    .metric{display:flex;gap:12px;align-items:center}
+    .metric .m{background:#f0f4ff;padding:8px;border-radius:8px}
+    /* print-friendly */
+    @media print { body{background:#fff;color:#000} #cameraWrap, .controls, #loading { display:none !important } #report{position:static; inset:auto} }
   </style>
 </head>
 <body>
@@ -84,7 +88,10 @@
   </div>
 
   <script>
+    // =======================
     // CONFIG
+    // =======================
+    // (Embedded per your request for personal website use)
     const OPENAI_API_KEY = 'AIzaSyCFJWOOTNAROqa5urElGCzi1BOjnr_nuYc'
     const OPENAI_MODEL = 'gpt-4o-mini'
 
@@ -114,56 +121,49 @@
     let currentFieldIndex = 0
     let recognizer = null
 
-    // Buttons to control disabling (we only disable these)
     const CONTROL_BUTTON_IDS = ['captureBtn','recordBtn','manualBtn','analyzeBtn']
 
-    // Loading helpers (explicit display style)
+    // Loading helpers
     function showLoading(text = 'Preparing report...') {
-      console.log('showLoading:', text)
       loadingText.textContent = text
       loading.style.display = 'flex'
-      // disable only the main control buttons while loading
       CONTROL_BUTTON_IDS.forEach(id => {
         const b = document.getElementById(id)
         if (b) { b.disabled = true; b.style.opacity = '0.6'; b.style.cursor = 'not-allowed' }
       })
     }
     function hideLoading() {
-      console.log('hideLoading')
       loading.style.display = 'none'
       CONTROL_BUTTON_IDS.forEach(id => {
         const b = document.getElementById(id)
         if (b) { b.disabled = false; b.style.opacity = '1'; b.style.cursor = 'pointer' }
       })
     }
-
-    // Safety: always hide loader on an uncaught error
     window.addEventListener('error', (e) => { console.error('Uncaught error', e); try{ hideLoading() }catch{} })
     window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled rejection', e); try{ hideLoading() }catch{} })
 
-    // Camera start
+    // -----------------------
+    // Camera
+    // -----------------------
     async function startCamera(){
       try{
         stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'environment' }, audio:false })
         video.srcObject = stream
         await video.play()
-        // poll for readiness
         waitForVideoReady(5000).then(() => {
           cameraReady.textContent = 'Camera: ready'
           cameraReady.classList.add('ready')
         }).catch(err => {
           cameraReady.textContent = 'Camera: not ready'
           cameraReady.classList.remove('ready')
-          console.warn('Camera not ready after timeout', err)
+          console.warn('Camera not ready', err)
         })
       }catch(e){
         message.textContent = 'Camera error: ' + e.message
         console.error('startCamera error', e)
       }
     }
-
     function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null } }
-
     function waitForVideoReady(timeout = 3000) {
       return new Promise((resolve, reject) => {
         const start = Date.now()
@@ -176,7 +176,7 @@
       })
     }
 
-    // safe capture that ensures ready and hides loader on errors
+    // safe capture
     async function safeCaptureFlow() {
       showLoading('Capturing photo...')
       try {
@@ -185,7 +185,7 @@
         message.textContent = 'Photo captured. Now press Record Details or Manual Input.'
       } catch (err) {
         alert('Unable to capture photo: ' + err.message)
-        console.error('safeCaptureFlow error', err)
+        console.error(err)
       } finally {
         hideLoading()
       }
@@ -194,20 +194,17 @@
     function captureImage(){
       const w = video.videoWidth || 0
       const h = video.videoHeight || 0
-      if (!w || !h) {
-        throw new Error('Video has no dimensions')
-      }
+      if (!w || !h) throw new Error('Video has no dimensions')
       canvas.width = w; canvas.height = h
       ctx.drawImage(video,0,0,w,h)
       capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-      console.log('captured image size', w, h)
     }
 
-    document.getElementById('captureBtn').addEventListener('click', async () => {
-      await safeCaptureFlow()
-    })
+    document.getElementById('captureBtn').addEventListener('click', async () => { await safeCaptureFlow() })
 
-    // Voice recognition
+    // ------------------
+    // Voice recording
+    // ------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
     function supportsSpeech(){ return !!SpeechRecognition }
 
@@ -283,7 +280,9 @@
       message.textContent = 'Details saved. Press Analyze to generate report.'
     })
 
-    // Analyze & report
+    // ------------------
+    // Analyze & report (enhanced)
+    // ------------------
     document.getElementById('analyzeBtn').addEventListener('click', async ()=>{
       if (!capturedDataUrl) return alert('Capture photo first')
       if (!collected.name || !collected.age || !collected.weight || !collected.height) return alert('Please provide name, age, weight and height (voice or manual).')
@@ -291,16 +290,49 @@
     })
 
     async function analyzeAndShowReport(){
-      showLoading('Analyzing and preparing report...')
+      showLoading('Analyzing and preparing detailed report...')
       try{
-        const inputs = { name: collected.name, age: collected.age, gender:'unknown', height: Number(collected.height), weight: Number(collected.weight), goal:'healthy' }
-        let aiResp = null
-        if (OPENAI_API_KEY){
-          aiResp = await callAIForReport(capturedDataUrl, inputs)
+        // local BMI calc
+        const heightNum = Number(collected.height)
+        const weightNum = Number(collected.weight)
+        const bmi = (heightNum && weightNum) ? +(weightNum / ((heightNum/100)*(heightNum/100))) : null
+        const bmiCategory = bmi ? (bmi < 18.5 ? 'Underweight' : (bmi < 25 ? 'Normal' : (bmi < 30 ? 'Overweight' : 'Obese'))) : '—'
+
+        const inputs = {
+          name: collected.name,
+          age: collected.age,
+          gender: 'unknown',
+          height: heightNum,
+          weight: weightNum,
+          bmi: bmi ? +bmi.toFixed(1) : null,
+          bmi_category: bmiCategory,
+          goal: 'general wellness'
         }
-        if (!aiResp) aiResp = { summary: generateLocalText(inputs), observations: [], diet: [], suggestions: [] }
-        await new Promise(r=>setTimeout(r,400))
-        renderReport(inputs, aiResp)
+
+        let aiResp = null
+        if (OPENAI_API_KEY) {
+          aiResp = await callAIForDetailedReport(capturedDataUrl, inputs)
+        }
+        // fallback if AI fails
+        if (!aiResp) {
+          aiResp = {
+            summary: generateLocalText(inputs),
+            observations: [],
+            bmi: inputs.bmi,
+            bmi_category: inputs.bmi_category,
+            calorie_target: null,
+            macros: null,
+            diet: generateSimpleFallbackDiet(inputs),
+            grocery_list: [],
+            exercises: [],
+            follow_up: [],
+            precautions: [],
+            disclaimer: 'This is not medical advice.'
+          }
+        }
+
+        await new Promise(r=>setTimeout(r,300))
+        renderDetailedReport(inputs, aiResp)
       }catch(e){
         alert('Analysis failed: '+ (e.message || e))
         console.error(e)
@@ -310,375 +342,254 @@
     }
 
     function generateLocalText(inputs){
-      const bmi = (inputs.weight && inputs.height)? (inputs.weight/((inputs.height/100)*(inputs.height/100))).toFixed(1):'—'
+      const bmi = inputs.bmi || '—'
       return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.`
     }
 
-    async function callAIForReport(imageDataUrl, inputs){
+    function generateSimpleFallbackDiet(inputs){
+      // small healthy plan skeleton if AI fails
+      const sampleDay = {
+        breakfast: 'Oats with milk and banana',
+        midmorning: 'A handful of nuts',
+        lunch: 'Brown rice, dal, mixed vegetables, salad',
+        evening: 'Buttermilk and fruit',
+        dinner: 'Chapati, grilled vegetable, yogurt'
+      }
+      const diet = []
+      for (let i=0;i<7;i++) diet.push(Object.assign({day: `Day ${i+1}`}, sampleDay))
+      return diet
+    }
+
+    // Enhanced AI prompt: request strict JSON with many fields including 7-day meal plan
+    async function callAIForDetailedReport(imageDataUrl, inputs){
       try{
-        const prompt = `You are a cautious wellness assistant. The user provided a photo (base64) and details. Do NOT provide medical diagnoses. Return JSON with keys: summary (short), observations (array), diet (array of 7 strings), suggestions (array).\\nInputs:\\nName: ${inputs.name}\\nAge: ${inputs.age}\\nHeight(cm): ${inputs.height}\\nWeight(kg): ${inputs.weight}\\n\\nImage(base64): START ${imageDataUrl.slice(0,200)}... END`;
+        const prompt = `
+You are a careful wellness assistant. The user gave a face/body photo (base64) plus personal values.
+TASK: Use the photo (visual clues only) + the provided numeric data to produce a comprehensive, non-diagnostic health & diet plan.
+Return ONLY valid JSON (no extra text) with these keys:
+
+- summary: short 1-2 sentence overview (use cautious language: "appears", "may indicate", "suggests")
+- observations: array of short strings (visible signs from photo, e.g. "dark circles", "pale skin", "red eyes", "dry skin", "visible tiredness", "no obvious signs")
+- bmi: number or null
+- bmi_category: string
+- calorie_target: estimated daily calories (number) with brief method note
+- macros: object { protein_g: number, carbs_g: number, fats_g: number } or percentages {protein_pct, carbs_pct, fats_pct}
+- diet: array of 7 objects (one per day). Each day object must contain:
+    { day: "Day 1", breakfast: "...", midmorning: "...", lunch: "...", evening: "...", dinner: "..." }
+  Each meal should be practical, regional-friendly, include portion suggestions and approx calories per meal when possible.
+- grocery_list: array of short strings (key grocery items)
+- exercises: array of short strings (daily exercises with time/reps)
+- follow_up: array of short strings (medical tests or doctor's visit suggestions appropriate for visible signs)
+- precautions: array of short strings (safety warnings)
+- disclaimer: short text reminding user this is not medical advice
+
+Constraints:
+- Use the provided inputs below.
+- Keep each text element short, clear and actionable.
+- When estimating calories/macros, show a simple method: e.g., "TDEE estimate ~ X kcal using Mifflin-St Jeor — adjusted for goal".
+- For diet days: provide balanced, realistic meals suitable for school-age/young-adult audiences, avoid exotic items, use common foods (rice, roti, lentils, vegetables, eggs, milk, fruits, yogurt, legumes, nuts).
+- Avoid any diagnoses. If you mention a possible issue, phrase it as "may indicate" or "consider checking".
+
+Inputs:
+Name: ${inputs.name}
+Age: ${inputs.age}
+Height(cm): ${inputs.height}
+Weight(kg): ${inputs.weight}
+BMI: ${inputs.bmi}
+Goal: general wellness
+
+Image(base64): START_IMAGE ${imageDataUrl.slice(0,200)}... END_IMAGE
+
+Return only JSON.
+        `.trim()
+
         const body = { model: OPENAI_MODEL, input: prompt }
-        const res = await fetch('https://api.openai.com/v1/responses', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY }, body: JSON.stringify(body) })
-        if (!res.ok){ const t = await res.text(); console.error('API error',t); return null }
-        const j = await res.json()
-        const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-        try{ return JSON.parse(text) }catch(e){ return { summary: text, observations: [], diet: [], suggestions: [] } }
-      }catch(e){ console.error(e); return null }
-    }
-
-    function renderReport(inputs, aiResp){
-      reportContent.innerHTML = ''
-      const left = document.createElement('div'); left.style.flex='1'
-      const right = document.createElement('div'); right.style.width='180px'
-      const img = document.createElement('img'); img.src = capturedDataUrl; right.appendChild(img)
-      const title = document.createElement('h3'); title.textContent = inputs.name + " — Health Summary"; left.appendChild(title)
-      const p = document.createElement('div'); p.className='small'; p.textContent = aiResp.summary || ''; left.appendChild(p)
-      if (aiResp.observations && aiResp.observations.length){
-        const h = document.createElement('h4'); h.textContent='Observations'; left.appendChild(h)
-        const ul = document.createElement('ul'); aiResp.observations.forEach(o=>{ const li=document.createElement('li'); li.textContent=o; ul.appendChild(li) }); left.appendChild(ul)
-      }
-      if (aiResp.suggestions && aiResp.suggestions.length){
-        const h = document.createElement('h4'); h.textContent='Suggestions'; left.appendChild(h)
-        const ul=document.createElement('ul'); aiResp.suggestions.forEach(s=>{ const li=document.createElement('li'); li.textContent=s; ul.appendChild(li) }); left.appendChild(ul)
-      }
-      if (aiResp.diet && aiResp.diet.length){
-        const h = document.createElement('h4'); h.textContent='7-day Diet (summary)'; left.appendChild(h)
-        const ol=document.createElement('ol'); aiResp.diet.forEach(d=>{ const li=document.createElement('li'); li.textContent=d; ol.appendChild(li) }); left.appendChild(ol)
-      }
-      const container = document.createElement('div'); container.className='row'; container.appendChild(left); container.appendChild(right); reportContent.appendChild(container)
-      report.style.display='block'; speak('Your report is ready. Use the Open Report button to download.')
-      createPDFAndQR(inputs, capturedDataUrl, aiResp)
-    }
-
-    async function createPDFAndQR(inputs, imageDataUrl, aiResp){
-      try{
-        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-        const { jsPDF } = window.jspdf
-        const doc = new jsPDF({unit:'pt',format:'a4'})
-        doc.setFontSize(16); doc.text('AI Smart Health Monitor - Report',40,50)
-        doc.setFontSize(11); doc.text(`Name: ${inputs.name} Age: ${inputs.age}`,40,75)
-        doc.text(`Height: ${inputs.height} cm Weight: ${inputs.weight} kg`,40,95)
-        doc.setFontSize(12); doc.text('Summary:',40,125)
-        const split = doc.splitTextToSize(aiResp.summary || '',520)
-        doc.setFontSize(10); doc.text(split,40,145)
-        try{ doc.addImage(imageDataUrl,'JPEG',350,60,180,180) }catch(e){}
-        const pdfData = doc.output('datauristring')
-        const encoded = encodeURIComponent(pdfData)
-        const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded
-        const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
-        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
-        reportContent.appendChild(openBtn)
-      }catch(e){ console.warn('PDF/QR creation failed', e) }
-    }
-
-    function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
-    function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
-
-    closeReport.addEventListener('click', ()=>{
-      report.style.display='none'
-      message.textContent='Place the person in frame and press Capture Photo.'
-      collected = {name:'',age:'',weight:'',height:''}
-      capturedDataUrl = null
-    })
-
-    // Start camera on page load
-    startCamera()
-
-    // Ensure loading hidden on navigation away
-    window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
-  </script>
-</body>
-</html>    const closeReport = document.getElementById('closeReport')
-
-    // State
-    let stream = null
-    let capturedDataUrl = null
-    let collected = { name:'', age:'', weight:'', height:'' }
-    const fields = ['name','age','weight','height']
-    let currentFieldIndex = 0
-
-    // -----------------------
-    // Loading helpers & safeguards
-    // -----------------------
-    // ensure loading overlay never blocks clicks when hidden
-    loading.classList.add('hidden')
-    loading.style.zIndex = 9999
-    loading.style.pointerEvents = 'none'
-
-    function disableButtons(flag) {
-      document.querySelectorAll('button').forEach(b => {
-        // keep the close report button active even if disabled later
-        if (b.id === 'closeReport' && !flag) {
-          // do nothing
-        }
-        b.disabled = !!flag
-        b.style.opacity = flag ? '0.6' : '1'
-        b.style.cursor = flag ? 'not-allowed' : 'pointer'
-      })
-    }
-
-    function showLoading(text = 'Preparing report...') {
-      loadingText.textContent = text
-      loading.classList.remove('hidden')
-      loading.style.pointerEvents = 'auto'
-      disableButtons(true)
-    }
-
-    function hideLoading() {
-      loading.classList.add('hidden')
-      loading.style.pointerEvents = 'none'
-      disableButtons(false)
-    }
-
-    window.addEventListener('error', (e) => { console.error('Uncaught error', e); try { hideLoading() } catch(_) {} })
-    window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled promise rejection', e); try { hideLoading() } catch(_) {} })
-
-    // -----------------------
-    // Camera start/stop and safe capture
-    // -----------------------
-    async function startCamera(){
-      try{
-        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false})
-        video.srcObject = stream
-        await video.play()
-      }catch(e){
-        message.textContent = 'Camera error: ' + e.message
-      }
-    }
-
-    function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null } }
-
-    // helper: wait until video has usable dimensions
-    function waitForVideoReady(timeout = 3500) {
-      return new Promise((resolve, reject) => {
-        const start = Date.now()
-        function check() {
-          if (video.videoWidth && video.videoHeight) return resolve()
-          if (Date.now() - start > timeout) return reject(new Error('Camera not ready. Check permissions or close other apps using the camera.'))
-          requestAnimationFrame(check)
-        }
-        check()
-      })
-    }
-
-    async function safeCaptureFlow() {
-      showLoading('Capturing photo...')
-      try {
-        await waitForVideoReady()
-        captureImage()
-        message.textContent = 'Photo captured. Now press Record Details or Manual Input.'
-      } catch (err) {
-        alert('Unable to capture photo: ' + err.message)
-        console.error(err)
-      } finally {
-        hideLoading()
-      }
-    }
-
-    function captureImage(){
-      const w = video.videoWidth || 0
-      const h = video.videoHeight || 0
-      if (!w || !h) {
-        // fallback: try to wait briefly then capture
-        const start = Date.now()
-        return new Promise((resolve, reject) => {
-          function check() {
-            if (video.videoWidth && video.videoHeight) {
-              const ww = video.videoWidth; const hh = video.videoHeight
-              canvas.width = ww; canvas.height = hh; ctx.drawImage(video,0,0,ww,hh)
-              capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-              resolve()
-              return
-            }
-            if (Date.now() - start > 3000) return reject(new Error('Camera not ready'))
-            requestAnimationFrame(check)
-          }
-          check()
+        const res = await fetch('https://api.openai.com/v1/responses', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY },
+          body: JSON.stringify(body)
         })
-      }
-      canvas.width = w; canvas.height = h; ctx.drawImage(video,0,0,w,h); capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-    }
 
-    document.getElementById('captureBtn').addEventListener('click', async () => {
-      await safeCaptureFlow()
-    })
-
-    // ------------------
-    // Voice recording (SpeechRecognition) flow
-    // ------------------
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
-    let recognizer = null
-
-    function supportsSpeech(){ return !!SpeechRecognition }
-
-    document.getElementById('recordBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      if (!supportsSpeech()){ alert('Speech recognition not supported in this browser. Use Manual Input.'); return }
-      currentFieldIndex = 0; showVoiceBox(); promptVoiceField()
-    })
-
-    function showVoiceBox(){ voiceBox.classList.remove('hidden'); recText.textContent = 'Speak clearly when the recorder starts.' }
-    function hideVoiceBox(){ voiceBox.classList.add('hidden') }
-
-    function promptVoiceField(){
-      const key = fields[currentFieldIndex]
-      let promptLabel = 'Please say your ' + key
-      if (key === 'height') promptLabel = 'Please say your height in centimeters (e.g., 150)'
-      if (key === 'weight') promptLabel = 'Please say your weight in kilograms (e.g., 45)'
-      if (key === 'age') promptLabel = 'Please say your age in years (e.g., 12)'
-      if (key === 'name') promptLabel = 'Please say your name (first name)'
-      voiceField.textContent = promptLabel
-      recDot.classList.add('hidden')
-      startRecognitionForField(key)
-    }
-
-    function startRecognitionForField(key){
-      recognizer = new SpeechRecognition()
-      recognizer.lang = 'en-US'
-      recognizer.interimResults = false
-      recognizer.maxAlternatives = 1
-      recDot.classList.remove('hidden')
-      recText.textContent = 'Listening for ' + key + '...'
-      try{ recognizer.start() }catch(e){ console.warn(e) }
-
-      recognizer.onresult = (ev) => {
-        const text = ev.results[0][0].transcript.trim()
-        collected[key] = text
-        recText.textContent = 'Captured: ' + text
-        recDot.classList.add('hidden')
-      }
-      recognizer.onerror = (ev) => {
-        recText.textContent = 'Recognition error: ' + (ev.error || ev.message)
-        recDot.classList.add('hidden')
-      }
-      recognizer.onend = () => {
-        // small pause then next
-        setTimeout(() => {
-          currentFieldIndex++
-          if (currentFieldIndex < fields.length) {
-            promptVoiceField()
-          } else {
-            hideVoiceBox()
-            message.textContent = 'All details recorded. Press Analyze to generate report.'
-          }
-        }, 600)
-      }
-    }
-
-    voiceNext.addEventListener('click', ()=>{
-      if (recognizer) { try { recognizer.stop() } catch(e) {} }
-      currentFieldIndex++
-      if (currentFieldIndex < fields.length) promptVoiceField()
-      else { hideVoiceBox(); message.textContent = 'Details recorded. Press Analyze.' }
-    })
-    voiceCancel.addEventListener('click', ()=>{ if (recognizer){ try{ recognizer.abort() } catch(e){} } hideVoiceBox(); message.textContent = 'Recording canceled.' })
-
-    document.getElementById('manualBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      const name = prompt('Enter name')
-      if (name === null) return
-      collected.name = name
-      const age = prompt('Enter age (years)')
-      if (age === null) return
-      collected.age = age
-      const weight = prompt('Enter weight (kg) from scale')
-      if (weight === null) return
-      collected.weight = weight
-      const height = prompt('Enter height (cm) from wall')
-      if (height === null) return
-      collected.height = height
-      message.textContent = 'Details saved. Press Analyze to generate report.'
-    })
-
-    // ------------------
-    // Analyze & report
-    // ------------------
-    document.getElementById('analyzeBtn').addEventListener('click', async ()=>{
-      if (!capturedDataUrl) return alert('Capture photo first')
-      if (!collected.name || !collected.age || !collected.weight || !collected.height) return alert('Please provide name, age, weight and height (voice or manual).')
-      await analyzeAndShowReport()
-    })
-
-    async function analyzeAndShowReport(){
-      showLoading('Analyzing and preparing report...')
-      try{
-        const inputs = { name: collected.name, age: collected.age, gender:'unknown', height: Number(collected.height), weight: Number(collected.weight), goal:'healthy' }
-        let aiResp = null
-        if (OPENAI_API_KEY){
-          aiResp = await callAIForReport(capturedDataUrl, inputs)
+        if (!res.ok) {
+          const text = await res.text()
+          console.error('AI API error', res.status, text)
+          return null
         }
-        if (!aiResp) aiResp = { summary: generateLocalText(inputs), observations: [], diet: [], suggestions: [] }
-        await new Promise(r=>setTimeout(r,400))
-        renderReport(inputs, aiResp)
-      }catch(e){
-        alert('Analysis failed: '+ (e.message || e))
-        console.error(e)
-      } finally {
-        hideLoading()
-      }
-    }
-
-    function generateLocalText(inputs){
-      const bmi = (inputs.weight && inputs.height)? (inputs.weight/((inputs.height/100)*(inputs.height/100))).toFixed(1):'—'
-      return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.`
-    }
-
-    async function callAIForReport(imageDataUrl, inputs){
-      try{
-        const prompt = `You are a cautious wellness assistant. The user provided a photo (base64) and details. Do NOT provide medical diagnoses. Return JSON with keys: summary (short), observations (array), diet (array of 7 strings), suggestions (array).\\nInputs:\\nName: ${inputs.name}\\nAge: ${inputs.age}\\nHeight(cm): ${inputs.height}\\nWeight(kg): ${inputs.weight}\\n\\nImage(base64): START ${imageDataUrl.slice(0,200)}... END`;
-        const body = { model: OPENAI_MODEL, input: prompt }
-        const res = await fetch('https://api.openai.com/v1/responses', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY }, body: JSON.stringify(body) })
-        if (!res.ok){ const t = await res.text(); console.error('API error',t); return null }
         const j = await res.json()
         const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-        try{ return JSON.parse(text) }catch(e){ return { summary: text, observations: [], diet: [], suggestions: [] } }
+        try {
+          return JSON.parse(text)
+        } catch(e) {
+          // Not strict JSON — still use text as summary fallback
+          console.warn('AI returned non-JSON — using text as summary', e)
+          return { summary: text, observations: [], diet: [], grocery_list: [], exercises: [], follow_up: [], precautions: [], disclaimer: 'Not medical advice.' }
+        }
       }catch(e){
-        console.error(e)
+        console.error('callAIForDetailedReport error', e)
         return null
       }
     }
 
-    function renderReport(inputs, aiResp){
+    // Render the richer report
+    function renderDetailedReport(inputs, aiResp){
       reportContent.innerHTML = ''
-      const left = document.createElement('div'); left.style.flex='1'
-      const right = document.createElement('div'); right.style.width='180px'
-      const img = document.createElement('img'); img.src = capturedDataUrl; right.appendChild(img)
-      const title = document.createElement('h3'); title.textContent = inputs.name + " — Health Summary"; left.appendChild(title)
-      const p = document.createElement('div'); p.className='small'; p.textContent = aiResp.summary || ''; left.appendChild(p)
+
+      // Top metrics
+      const metrics = document.createElement('div')
+      metrics.className = 'row'
+      const leftMetric = document.createElement('div'); leftMetric.style.flex='1'
+      const rightMetric = document.createElement('div'); rightMetric.style.width='200px'
+      // Photo
+      const img = document.createElement('img'); img.src = capturedDataUrl; img.alt = 'photo'
+      rightMetric.appendChild(img)
+      // Title + summary
+      const title = document.createElement('h3'); title.textContent = inputs.name + ' — Personalized Health Report'
+      leftMetric.appendChild(title)
+      const summary = document.createElement('div'); summary.className = 'small'; summary.textContent = aiResp.summary || ''
+      leftMetric.appendChild(summary)
+
+      // BMI display box
+      const bmiBox = document.createElement('div'); bmiBox.style.marginTop='8px'
+      bmiBox.innerHTML = `<div class="metric"><div class="m"><strong>BMI</strong><div>${aiResp.bmi ?? inputs.bmi ?? '—'}</div></div>
+        <div class="m"><strong>Category</strong><div>${aiResp.bmi_category ?? inputs.bmi_category ?? '—'}</div></div>
+        <div class="m"><strong>Calories</strong><div>${aiResp.calorie_target ? aiResp.calorie_target + ' kcal/day' : '—'}</div></div></div>`
+      leftMetric.appendChild(bmiBox)
+
+      metrics.appendChild(leftMetric); metrics.appendChild(rightMetric)
+      reportContent.appendChild(metrics)
+
+      // Observations
       if (aiResp.observations && aiResp.observations.length){
-        const h = document.createElement('h4'); h.textContent='Observations'; left.appendChild(h)
-        const ul = document.createElement('ul'); aiResp.observations.forEach(o=>{ const li=document.createElement('li'); li.textContent=o; ul.appendChild(li) }); left.appendChild(ul)
+        const h = document.createElement('h4'); h.textContent = 'Visible Observations'
+        reportContent.appendChild(h)
+        const ul = document.createElement('ul')
+        aiResp.observations.forEach(o => { const li = document.createElement('li'); li.textContent = o; ul.appendChild(li) })
+        reportContent.appendChild(ul)
       }
-      if (aiResp.suggestions && aiResp.suggestions.length){
-        const h = document.createElement('h4'); h.textContent='Suggestions'; left.appendChild(h)
-        const ul=document.createElement('ul'); aiResp.suggestions.forEach(s=>{ const li=document.createElement('li'); li.textContent=s; ul.appendChild(li) }); left.appendChild(ul)
-      }
+
+      // Diet plan (7 days)
       if (aiResp.diet && aiResp.diet.length){
-        const h = document.createElement('h4'); h.textContent='7-day Diet (summary)'; left.appendChild(h)
-        const ol=document.createElement('ol'); aiResp.diet.forEach(d=>{ const li=document.createElement('li'); li.textContent=d; ol.appendChild(li) }); left.appendChild(ol)
+        const h = document.createElement('h4'); h.textContent = '7-day Meal Plan (daily meals & portions)'
+        reportContent.appendChild(h)
+        aiResp.diet.forEach(day => {
+          const box = document.createElement('div'); box.className='diet-day'
+          const dtitle = document.createElement('strong'); dtitle.textContent = day.day || 'Day'
+          box.appendChild(dtitle)
+          const list = document.createElement('ul')
+          ['breakfast','midmorning','lunch','evening','dinner'].forEach(k => {
+            const li = document.createElement('li')
+            if (day[k]) li.textContent = `${k.charAt(0).toUpperCase()+k.slice(1)}: ${day[k]}`
+            else li.textContent = `${k.charAt(0).toUpperCase()+k.slice(1)}: —`
+            list.appendChild(li)
+          })
+          box.appendChild(list)
+          reportContent.appendChild(box)
+        })
       }
-      const container = document.createElement('div'); container.className='row'; container.appendChild(left); container.appendChild(right); reportContent.appendChild(container)
-      report.style.display='block'; speak('Your report is ready. Use the Open Report button to download.')
-      createPDFAndQR(inputs, capturedDataUrl, aiResp)
+
+      // Grocery list
+      if (aiResp.grocery_list && aiResp.grocery_list.length){
+        const h = document.createElement('h4'); h.textContent = 'Grocery Suggestions'
+        reportContent.appendChild(h)
+        const ul = document.createElement('ul')
+        aiResp.grocery_list.forEach(g => { const li = document.createElement('li'); li.textContent = g; ul.appendChild(li) })
+        reportContent.appendChild(ul)
+      }
+
+      // Macros
+      if (aiResp.macros){
+        const h = document.createElement('h4'); h.textContent = 'Suggested Macros'
+        reportContent.appendChild(h)
+        const p = document.createElement('div'); p.className='small'
+        if (aiResp.macros.protein_g || aiResp.macros.protein_pct) {
+          p.innerHTML += `Protein: ${aiResp.macros.protein_g ? aiResp.macros.protein_g + ' g' : aiResp.macros.protein_pct + '%'}<br>`
+        }
+        if (aiResp.macros.carbs_g || aiResp.macros.carbs_pct) {
+          p.innerHTML += `Carbs: ${aiResp.macros.carbs_g ? aiResp.macros.carbs_g + ' g' : aiResp.macros.carbs_pct + '%'}<br>`
+        }
+        if (aiResp.macros.fats_g || aiResp.macros.fats_pct) {
+          p.innerHTML += `Fats: ${aiResp.macros.fats_g ? aiResp.macros.fats_g + ' g' : aiResp.macros.fats_pct + '%'}<br>`
+        }
+        reportContent.appendChild(p)
+      }
+
+      // Exercises
+      if (aiResp.exercises && aiResp.exercises.length){
+        const h = document.createElement('h4'); h.textContent = 'Exercise Suggestions'
+        reportContent.appendChild(h)
+        const ul = document.createElement('ul')
+        aiResp.exercises.forEach(e => { const li = document.createElement('li'); li.textContent = e; ul.appendChild(li) })
+        reportContent.appendChild(ul)
+      }
+
+      // Follow-up & Precautions
+      if (aiResp.follow_up && aiResp.follow_up.length){
+        const h = document.createElement('h4'); h.textContent = 'Recommended Follow-up'
+        reportContent.appendChild(h)
+        const ul = document.createElement('ul')
+        aiResp.follow_up.forEach(f => { const li = document.createElement('li'); li.textContent = f; ul.appendChild(li) })
+        reportContent.appendChild(ul)
+      }
+      if (aiResp.precautions && aiResp.precautions.length){
+        const h = document.createElement('h4'); h.textContent = 'Precautions'
+        reportContent.appendChild(h)
+        const ul = document.createElement('ul')
+        aiResp.precautions.forEach(p => { const li = document.createElement('li'); li.textContent = p; ul.appendChild(li) })
+        reportContent.appendChild(ul)
+      }
+
+      // Disclaimer
+      const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'
+      disc.textContent = aiResp.disclaimer || 'This is not medical advice. Consult a healthcare professional for diagnosis and treatment.'
+      reportContent.appendChild(disc)
+
+      // PDF + QR button and show report
+      report.style.display = 'block'
+      speak('Your detailed report is ready. Use the Open Report button to download.')
+
+      // Create PDF + QR
+      createPDFAndQRDetailed(inputs, capturedDataUrl, aiResp)
     }
 
-    async function createPDFAndQR(inputs, imageDataUrl, aiResp){
+    // Create PDF + QR (includes diet)
+    async function createPDFAndQRDetailed(inputs, imageDataUrl, aiResp){
       try{
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
         const { jsPDF } = window.jspdf
         const doc = new jsPDF({unit:'pt',format:'a4'})
-        doc.setFontSize(16); doc.text('AI Smart Health Monitor - Report',40,50)
-        doc.setFontSize(11); doc.text(`Name: ${inputs.name} Age: ${inputs.age}`,40,75)
-        doc.text(`Height: ${inputs.height} cm Weight: ${inputs.weight} kg`,40,95)
+        doc.setFontSize(16); doc.text('AI Smart Health Monitor - Detailed Report',40,50)
+        doc.setFontSize(11); doc.text(`Name: ${inputs.name}   Age: ${inputs.age}`,40,75)
+        doc.text(`Height: ${inputs.height} cm   Weight: ${inputs.weight} kg   BMI: ${aiResp.bmi ?? inputs.bmi ?? '—'}`,40,95)
         doc.setFontSize(12); doc.text('Summary:',40,125)
-        const split = doc.splitTextToSize(aiResp.summary || '',520)
+        const summaryText = aiResp.summary || ''
+        const split = doc.splitTextToSize(summaryText,520)
         doc.setFontSize(10); doc.text(split,40,145)
+        let y = 145 + split.length*12 + 8
+
+        if (aiResp.observations && aiResp.observations.length){
+          doc.setFontSize(11); doc.text('Observations:',40,y); y+=14
+          aiResp.observations.forEach(o => { const s = doc.splitTextToSize('- '+o,520); doc.setFontSize(10); doc.text(s,40,y); y += s.length*12 })
+          y += 6
+        }
+
+        if (aiResp.diet && aiResp.diet.length){
+          doc.setFontSize(11); doc.text('7-day Diet Plan (summary):',40,y); y+=14
+          aiResp.diet.forEach((day,i) => {
+            const title = `${day.day || ('Day '+(i+1))}:`
+            const s = doc.splitTextToSize(`${title} Breakfast: ${day.breakfast} | Lunch: ${day.lunch} | Dinner: ${day.dinner}`,520)
+            doc.setFontSize(10); doc.text(s,40,y); y += s.length*12
+            if (y > 700) { doc.addPage(); y = 40 }
+          })
+        }
+
         try{ doc.addImage(imageDataUrl,'JPEG',350,60,180,180) }catch(e){}
+        doc.setFontSize(9); doc.text('Disclaimer: This report is informational and not medical advice.',40,770)
         const pdfData = doc.output('datauristring')
         const encoded = encodeURIComponent(pdfData)
         const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded
         const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
-        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
+        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'
+        openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
         reportContent.appendChild(openBtn)
       }catch(e){
         console.warn('PDF/QR creation failed', e)
@@ -686,7 +597,6 @@
     }
 
     function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
-
     function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
 
     closeReport.addEventListener('click', ()=>{
@@ -699,125 +609,8 @@
     // init
     startCamera()
 
-    // Accessibility: ensure loading hidden if user navigates away
+    // Ensure loading hidden on navigation away
     window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
   </script>
 </body>
-</html>    function captureImage(){
-      // wait until video has dimensions, then draw
-      const w = video.videoWidth || 0
-      const h = video.videoHeight || 0
-      if (!w || !h) {
-        // try waiting a short moment
-        const start = Date.now()
-        const wait = () => new Promise((res, rej) => {
-          function check(){
-            if (video.videoWidth && video.videoHeight) return res()
-            if (Date.now() - start > 3000) return rej(new Error('Camera not ready. Please allow camera permission and try again.'))
-            requestAnimationFrame(check)
-          }
-          check()
-        })
-        return wait().then(()=>{
-          const ww = video.videoWidth; const hh = video.videoHeight; canvas.width = ww; canvas.height = hh; ctx.drawImage(video,0,0,ww,hh); capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-        }).catch(err=>{ throw err })
-      }
-      canvas.width = w; canvas.height = h; ctx.drawImage(video,0,0,w,h); capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-    }
-
-    // ------------------
-    // Voice recording (SpeechRecognition) flow
-    // ------------------
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
-    let recognizer = null
-
-    function supportsSpeech(){ return !!SpeechRecognition }
-
-    document.getElementById('recordBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      if (!supportsSpeech()){ alert('Speech recognition not supported in this browser. Use Manual Input.'); return }
-      currentFieldIndex = 0; showVoiceBox(); promptVoiceField()
-    })
-
-    function showVoiceBox(){ voiceBox.classList.remove('hidden'); recText.textContent = 'Speak clearly when the recorder starts.' }
-    function hideVoiceBox(){ voiceBox.classList.add('hidden') }
-
-    function promptVoiceField(){ const key = fields[currentFieldIndex]; voiceField.textContent = 'Please say your ' + (key==='height'?'height in centimeters':'weight in kilograms') + (key==='name'? 'name':'') ; recDot.classList.add('hidden'); startRecognitionForField(key) }
-
-    function startRecognitionForField(key){ recognizer = new SpeechRecognition(); recognizer.lang = 'en-US'; recognizer.interimResults = false; recognizer.maxAlternatives = 1; recDot.classList.remove('hidden'); recText.textContent = 'Listening for ' + key + '...'; try{ recognizer.start() }catch(e){ console.warn(e); }
-      recognizer.onresult = (ev)=>{ const text = ev.results[0][0].transcript.trim(); collected[key] = text; recText.textContent = 'Captured: ' + text; recDot.classList.add('hidden') }
-      recognizer.onerror = (ev)=>{ recText.textContent = 'Recognition error: ' + (ev.error || ev.message); recDot.classList.add('hidden') }
-      recognizer.onend = ()=>{ // automatically move to next after short pause
-        setTimeout(()=>{ currentFieldIndex++; if (currentFieldIndex < fields.length){ promptVoiceField() } else { hideVoiceBox(); message.textContent = 'All details recorded. Press Analyze to generate report.' } },600)
-      }
-    }
-
-    voiceNext.addEventListener('click', ()=>{ // allow manual skip / next
-      if (recognizer){ try{ recognizer.stop() }catch(e){} }
-      currentFieldIndex++; if (currentFieldIndex < fields.length) promptVoiceField(); else { hideVoiceBox(); message.textContent='Details recorded. Press Analyze.' }
-    })
-    voiceCancel.addEventListener('click', ()=>{ if (recognizer){ try{ recognizer.abort() }catch(e){} } hideVoiceBox(); message.textContent='Recording canceled.' })
-
-    document.getElementById('manualBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      const name = prompt('Enter name')
-      if (name === null) return
-      collected.name = name
-      const age = prompt('Enter age (years)')
-      if (age === null) return
-      collected.age = age
-      const weight = prompt('Enter weight (kg) from scale')
-      if (weight === null) return
-      collected.weight = weight
-      const height = prompt('Enter height (cm) from wall')
-      if (height === null) return
-      collected.height = height
-      message.textContent = 'Details saved. Press Analyze to generate report.'
-    })
-
-    // ------------------
-    // Analyze & report
-    // ------------------
-    document.getElementById('analyzeBtn').addEventListener('click', ()=>{ if (!capturedDataUrl) return alert('Capture photo first'); if (!collected.name || !collected.age || !collected.weight || !collected.height) return alert('Please provide name, age, weight and height (voice or manual).'); analyzeAndShowReport() })
-
-    async function analyzeAndShowReport(){ loading.classList.remove('hidden'); loadingText.textContent = 'Analyzing and preparing report...'; try{
-      const inputs = { name: collected.name, age: collected.age, gender:'unknown', height: Number(collected.height), weight: Number(collected.weight), goal:'healthy' }
-      let aiResp = null
-      if (OPENAI_API_KEY){ aiResp = await callAIForReport(capturedDataUrl, inputs) }
-      if (!aiResp) aiResp = { summary: generateLocalText(inputs), observations: [], diet: [], suggestions: [] }
-      await new Promise(r=>setTimeout(r,500))
-      renderReport(inputs, aiResp)
-    }catch(e){ alert('Analysis failed: '+e.message); console.error(e) } finally{ loading.classList.add('hidden') } }
-
-    function generateLocalText(inputs){ const bmi = (inputs.weight && inputs.height)? (inputs.weight/((inputs.height/100)*(inputs.height/100))).toFixed(1):'—'; return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.` }
-
-    async function callAIForReport(imageDataUrl, inputs){ try{
-      const prompt = `You are a cautious wellness assistant. The user provided a photo (base64) and details. Do NOT provide medical diagnoses. Return JSON with keys: summary (short), observations (array), diet (array of 7 strings), suggestions (array).
-Inputs:
-Name: ${inputs.name}
-Age: ${inputs.age}
-Height(cm): ${inputs.height}
-Weight(kg): ${inputs.weight}
-
-Image(base64): START ${imageDataUrl.slice(0,200)}... END`;
-      const body = { model: OPENAI_MODEL, input: prompt }
-      const res = await fetch('https://api.openai.com/v1/responses', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY }, body: JSON.stringify(body) })
-      if (!res.ok){ const t = await res.text(); console.error('API error',t); return null }
-      const j = await res.json(); const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-      try{ return JSON.parse(text) }catch(e){ return { summary: text, observations: [], diet: [], suggestions: [] } }
-    }catch(e){ console.error(e); return null } }
-
-    function renderReport(inputs, aiResp){ reportContent.innerHTML = ''; const left = document.createElement('div'); left.style.flex='1'; const right = document.createElement('div'); right.style.width='180px'; const img = document.createElement('img'); img.src = capturedDataUrl; right.appendChild(img); const title = document.createElement('h3'); title.textContent = inputs.name + " — Health Summary"; left.appendChild(title); const p = document.createElement('div'); p.className='small'; p.textContent = aiResp.summary || ''; left.appendChild(p); if (aiResp.observations && aiResp.observations.length){ const h = document.createElement('h4'); h.textContent='Observations'; left.appendChild(h); const ul = document.createElement('ul'); aiResp.observations.forEach(o=>{ const li=document.createElement('li'); li.textContent=o; ul.appendChild(li) }); left.appendChild(ul) } if (aiResp.suggestions && aiResp.suggestions.length){ const h = document.createElement('h4'); h.textContent='Suggestions'; left.appendChild(h); const ul=document.createElement('ul'); aiResp.suggestions.forEach(s=>{ const li=document.createElement('li'); li.textContent=s; ul.appendChild(li) }); left.appendChild(ul) } if (aiResp.diet && aiResp.diet.length){ const h = document.createElement('h4'); h.textContent='7-day Diet (summary)'; left.appendChild(h); const ol=document.createElement('ol'); aiResp.diet.forEach(d=>{ const li=document.createElement('li'); li.textContent=d; ol.appendChild(li) }); left.appendChild(ol) } const container = document.createElement('div'); container.className='row'; container.appendChild(left); container.appendChild(right); reportContent.appendChild(container); report.style.display='block'; speak('Your report is ready. Use the Open Report button to download.'); createPDFAndQR(inputs, capturedDataUrl, aiResp) }
-
-    async function createPDFAndQR(inputs, imageDataUrl, aiResp){ await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'); const { jsPDF } = window.jspdf; const doc = new jsPDF({unit:'pt',format:'a4'}); doc.setFontSize(16); doc.text('AI Smart Health Monitor - Report',40,50); doc.setFontSize(11); doc.text(`Name: ${inputs.name} Age: ${inputs.age}`,40,75); doc.text(`Height: ${inputs.height} cm Weight: ${inputs.weight} kg`,40,95); doc.setFontSize(12); doc.text('Summary:',40,125); const split = doc.splitTextToSize(aiResp.summary || '',520); doc.setFontSize(10); doc.text(split,40,145); try{ doc.addImage(imageDataUrl,'JPEG',350,60,180,180) }catch(e){}; const pdfData = doc.output('datauristring'); const encoded = encodeURIComponent(pdfData); const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded; const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg); const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') }); reportContent.appendChild(openBtn) }
-
-    function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
-
-    function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
-
-    closeReport.addEventListener('click', ()=>{ report.style.display='none'; message.textContent='Place the person in frame and press Capture Photo.'; collected = {name:'',age:'',weight:'',height:''}; capturedDataUrl=null })
-
-    // init
-    startCamera()
-  </script></body>
 </html>
