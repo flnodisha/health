@@ -3,494 +3,408 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AI Smart Health Monitor — Defensive</title>
+  <title>Face Health Scanner — Flip + Frame</title>
   <style>
     :root{--accent:#0b6efd}
     html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial}
     body{background:#000;color:#fff;overflow:hidden}
     #app{height:100%;display:flex;flex-direction:column}
-    header{position:absolute;left:0;right:0;top:10px;display:flex;align-items:center;justify-content:center;pointer-events:none}
-    header h1{margin:0;padding:6px 12px;background:rgba(0,0,0,0.5);border-radius:10px;border:1px solid rgba(255,255,255,0.08);font-size:18px}
+    header{position:absolute;left:0;right:0;top:10px;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:4000}
+    header h1{margin:0;padding:6px 12px;background:rgba(0,0,0,0.55);border-radius:10px;border:1px solid rgba(255,255,255,0.08);font-size:18px}
     #cameraWrap{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
     video{width:100%;height:100%;object-fit:cover}
     canvas{display:none}
-    .overlay{position:absolute;left:0;right:0;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+    .overlay{position:absolute;left:0;right:0;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:3000}
     .bubble{background:rgba(0,0,0,0.6);padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);font-size:16px}
     .controls{display:flex;gap:8px;pointer-events:auto}
-    .promptBox{background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;display:flex;flex-direction:column;gap:8px;min-width:320px}
-    input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#fff}
     button{padding:10px 14px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
     #loading{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);flex-direction:column;gap:12px;z-index:9999}
     .spinner{width:54px;height:54px;border-radius:50%;border:6px solid rgba(255,255,255,0.12);border-top-color:var(--accent);animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-    #report{position:absolute;inset:20px;background:#fff;color:#111;border-radius:12px;padding:18px;overflow:auto;display:none;z-index:10000}
+    #report{position:absolute;inset:14px;background:#fff;color:#111;border-radius:12px;padding:18px;overflow:auto;display:none;z-index:10000}
     #report img{max-width:160px;border-radius:8px}
-    .row{display:flex;gap:12px}
-    .small{font-size:13px;color:#555}
-    .recIndicator{width:12px;height:12px;border-radius:50%;background:#d9534f;margin-right:8px;box-shadow:0 0 6px rgba(217,83,79,0.6)}
-    #cameraReady{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;z-index:2000}
+    .row{display:flex;gap:12px;align-items:flex-start}
+    .small{font-size:13px;color:#444}
+    .note{font-size:13px;color:#666;margin-top:8px}
+    .danger{color:#b22222}
+    #cameraReady{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;z-index:4000}
     #cameraReady.ready{background:rgba(0,128,0,0.45);border-color:rgba(0,255,0,0.12)}
-    .overlay .bubble { pointer-events: none; }
-    .diet-day{background:#f6f8fb;padding:10px;border-radius:8px;margin-bottom:8px;color:#111}
-    .metric{display:flex;gap:12px;align-items:center}
-    .metric .m{background:#f0f4ff;padding:8px;border-radius:8px}
-    #rawJsonToggle{margin-top:12px;background:#eee;color:#111;padding:8px;border-radius:8px;cursor:pointer;border:1px solid #ccc}
+    #rawJsonToggle{margin-top:12px;background:#eee;color:#111;padding:8px;border-radius:8px;cursor:pointer;border:1px solid #ccc;display:none}
     #rawJson{white-space:pre-wrap;background:#f8f8f8;padding:10px;border-radius:8px;color:#111;display:none;max-height:240px;overflow:auto}
+    /* Flip & frame buttons container */
+    #topControls { position:absolute; right:12px; top:12px; display:flex; flex-direction:column; gap:8px; z-index:4000; pointer-events:auto }
+    .iconBtn { background: rgba(0,0,0,0.6); color: #fff; border-radius:8px; padding:8px 10px; border:1px solid rgba(255,255,255,0.06); cursor:pointer; }
+    /* Face frame overlay (guides only) */
+    #frameOverlay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:62vw; max-width:420px; height:62vw; max-height:420px; pointer-events:none; z-index:3500; display:block }
+    #frameOverlay.hidden { display:none }
+    /* circle with subtle crosshair */
+    #frameOverlay .circle { width:100%; height:100%; border-radius:50%; border:4px dashed rgba(255,255,255,0.35); box-shadow: 0 6px 18px rgba(0,0,0,0.6); background: radial-gradient(circle at 50% 40%, rgba(255,255,255,0.02), transparent 40%); display:flex; align-items:center; justify-content:center; }
+    #frameOverlay .cross { position:absolute; width:70%; height:70%; display:flex; align-items:center; justify-content:center; pointer-events:none }
+    #frameOverlay .cross:before, #frameOverlay .cross:after { content:''; position:absolute; background: rgba(255,255,255,0.15); }
+    #frameOverlay .cross:before { height:2px; width:100% }
+    #frameOverlay .cross:after { width:2px; height:100% }
+    /* small instruction under frame */
+    #frameHint { position:absolute; left:50%; transform:translateX(-50%); top:calc(50% + 34%); color:rgba(255,255,255,0.85); font-size:13px; z-index:3600; text-align:center; pointer-events:none }
+    /* responsive tweaks */
+    @media (max-width:420px){ #frameOverlay{ width:78vw; height:78vw } }
   </style>
 </head>
 <body>
   <div id="app">
-    <header><h1>AI Smart Health Monitor</h1></header>
+    <header><h1>Face Health Scanner</h1></header>
 
     <div id="cameraWrap">
       <div id="cameraReady">Camera: not ready</div>
+
       <video id="video" playsinline autoplay muted></video>
       <canvas id="photoCanvas"></canvas>
 
-      <div class="overlay">
-        <div id="message" class="bubble">Place the person in frame and press <strong>Capture Photo</strong>. Then use <strong>Record Details</strong> to speak name, age, weight and height step-by-step.</div>
+      <!-- top right controls: flip camera + toggle frame -->
+      <div id="topControls">
+        <button id="flipBtn" class="iconBtn" title="Flip camera (front/back)">Flip Camera</button>
+        <button id="toggleFrameBtn" class="iconBtn" title="Show/Hide face guide">Hide Frame</button>
+      </div>
 
+      <!-- frame overlay for face alignment -->
+      <div id="frameOverlay">
+        <div class="circle">
+          <div class="cross"></div>
+        </div>
+      </div>
+      <div id="frameHint">Place your face inside the circle</div>
+
+      <div class="overlay">
+        <div id="message" class="bubble">Frame the face, press <strong>Capture Photo</strong>, then press <strong>Analyze Face</strong>. No personal info required.</div>
         <div class="controls" role="group" aria-label="controls">
           <button id="captureBtn">Capture Photo</button>
-          <button id="recordBtn">Record Details (Voice)</button>
-          <button id="manualBtn">Manual Input</button>
-          <button id="analyzeBtn">Analyze & Generate Report</button>
+          <button id="analyzeBtn">Analyze Face</button>
         </div>
-
-        <div id="voiceStatus" class="promptBox" style="display:none;pointer-events:auto">
-          <div style="display:flex;align-items:center">
-            <div id="recDot" class="recIndicator" style="display:none"></div>
-            <div id="recText">Press Record to begin voice capture for each field.</div>
-          </div>
-          <div id="voiceField" class="small"></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button id="voiceNext">Next</button>
-            <button id="voiceCancel" style="background:#777">Cancel</button>
-          </div>
-        </div>
-
+        <div class="note">Note: This tool provides non-diagnostic observations and home-care suggestions only. If the report shows red flags, seek medical help.</div>
       </div>
 
       <div id="loading" aria-hidden="true">
         <div class="spinner" role="progressbar" aria-label="Loading"></div>
-        <div class="bubble" id="loadingText">Preparing report...</div>
+        <div class="bubble" id="loadingText">Analyzing photo...</div>
       </div>
 
       <div id="report">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px">
-          <h2>Health Report</h2>
-          <div style="display:flex;gap:8px">
-            <button id="closeReport">Close</button>
-          </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <h2>Face Scan Report</h2>
+          <div><button id="closeReport">Close</button></div>
         </div>
+
         <div id="reportContent" style="margin-top:12px"></div>
 
-        <div id="rawJsonToggle" style="display:none">Show AI JSON (debug)</div>
+        <div id="rawJsonToggle">Show AI JSON (debug)</div>
         <pre id="rawJson"></pre>
-      </div>
 
+        <div class="note" style="margin-top:12px;color:#444">
+          Red-flag guidance links:
+          <ul>
+            <li><a href="#" id="linkJaundice" target="_blank">Yellowing of skin/eyes (urgent) — official guidance</a></li>
+            <li><a href="#" id="linkSwelling" target="_blank">Sudden facial swelling or breathing difficulty — seek immediate care</a></li>
+            <li><a href="#" id="linkRash" target="_blank">Painful or spreading rash — see a doctor</a></li>
+          </ul>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    // ---------- CONFIG ----------
-    const OPENAI_API_KEY = 'AIzaSyCFJWOOTNAROqa5urElGCzi1BOjnr_nuYc'
-    const OPENAI_MODEL = 'gpt-4o-mini'
+  // ===== CONFIG =====
+  const OPENAI_API_KEY = 'AIzaSyCFJWOOTNAROqa5urElGCzi1BOjnr_nuYc'
+  const OPENAI_MODEL = 'gpt-4o-mini'
 
-    // UI refs
-    const video = document.getElementById('video')
-    const canvas = document.getElementById('photoCanvas')
-    const ctx = canvas.getContext('2d')
-    const message = document.getElementById('message')
-    const voiceBox = document.getElementById('voiceStatus')
-    const recDot = document.getElementById('recDot')
-    const recText = document.getElementById('recText')
-    const voiceField = document.getElementById('voiceField')
-    const voiceNext = document.getElementById('voiceNext')
-    const voiceCancel = document.getElementById('voiceCancel')
-    const loading = document.getElementById('loading')
-    const loadingText = document.getElementById('loadingText')
-    const report = document.getElementById('report')
-    const reportContent = document.getElementById('reportContent')
-    const closeReport = document.getElementById('closeReport')
-    const cameraReady = document.getElementById('cameraReady')
-    const rawJsonToggle = document.getElementById('rawJsonToggle')
-    const rawJson = document.getElementById('rawJson')
+  const RED_FLAG_LINKS = {
+    jaundice: 'https://www.nhs.uk/conditions/jaundice/',
+    swelling: 'https://my.clevelandclinic.org/health/symptoms/facial-swelling',
+    rash: 'https://www.nhs.uk/conditions/contact-dermatitis/'
+  }
+  document.getElementById('linkJaundice').href = RED_FLAG_LINKS.jaundice
+  document.getElementById('linkSwelling').href = RED_FLAG_LINKS.swelling
+  document.getElementById('linkRash').href = RED_FLAG_LINKS.rash
 
-    // state
-    let stream = null
-    let capturedDataUrl = null
-    let collected = { name:'', age:'', weight:'', height:'' }
-    const fields = ['name','age','weight','height']
-    let currentFieldIndex = 0
-    let recognizer = null
-    let lastAiResponse = null
+  // ===== UI Refs =====
+  const video = document.getElementById('video')
+  const canvas = document.getElementById('photoCanvas')
+  const ctx = canvas.getContext('2d')
+  const loading = document.getElementById('loading')
+  const loadingText = document.getElementById('loadingText')
+  const cameraReady = document.getElementById('cameraReady')
+  const message = document.getElementById('message')
+  const report = document.getElementById('report')
+  const reportContent = document.getElementById('reportContent')
+  const rawJsonToggle = document.getElementById('rawJsonToggle')
+  const rawJson = document.getElementById('rawJson')
+  const frameOverlay = document.getElementById('frameOverlay')
+  const frameHint = document.getElementById('frameHint')
+  const flipBtn = document.getElementById('flipBtn')
+  const toggleFrameBtn = document.getElementById('toggleFrameBtn')
 
-    const CONTROL_BUTTON_IDS = ['captureBtn','recordBtn','manualBtn','analyzeBtn']
+  // state
+  let stream = null
+  let capturedDataUrl = null
+  let lastAiResponse = null
+  let facingMode = 'user' // default to selfie; toggle flips to 'environment'
+  const CONTROL_BUTTON_IDS = ['captureBtn','analyzeBtn','flipBtn','toggleFrameBtn']
 
-    // ---------- small helpers ----------
-    function showLoading(text = 'Preparing report...'){
-      loadingText.textContent = text
-      loading.style.display = 'flex'
-      CONTROL_BUTTON_IDS.forEach(id => {
-        const b = document.getElementById(id)
-        if (b) { b.disabled = true; b.style.opacity = '0.6'; b.style.cursor = 'not-allowed' }
-      })
-    }
-    function hideLoading(){
-      loading.style.display = 'none'
-      CONTROL_BUTTON_IDS.forEach(id => {
-        const b = document.getElementById(id)
-        if (b) { b.disabled = false; b.style.opacity = '1'; b.style.cursor = 'pointer' }
-      })
-    }
-    window.addEventListener('error', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
-    window.addEventListener('unhandledrejection', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
+  // ---------- helpers ----------
+  function showLoading(text='Analyzing photo...'){
+    loadingText.textContent = text
+    loading.style.display = 'flex'
+    CONTROL_BUTTON_IDS.forEach(id => { const b = document.getElementById(id); if (b){ b.disabled=true; b.style.opacity='0.6'; b.style.cursor='not-allowed' }})
+  }
+  function hideLoading(){
+    loading.style.display = 'none'
+    CONTROL_BUTTON_IDS.forEach(id => { const b = document.getElementById(id); if (b){ b.disabled=false; b.style.opacity='1'; b.style.cursor='pointer' }})
+  }
+  window.addEventListener('error', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
+  window.addEventListener('unhandledrejection', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
 
-    function generateLocalText(inputs){ const bmi = inputs.bmi || '—'; return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.` }
-    function generateSimpleFallbackDiet(inputs){
-      const sampleDay = {
-        breakfast: 'Oats/upma/poha + banana (≈300 kcal)',
-        midmorning: 'Handful of nuts (≈100 kcal)',
-        lunch: 'Rice/2 rotis, dal, vegetable, salad (≈500-600 kcal)',
-        evening: 'Buttermilk + fruit (≈150 kcal)',
-        dinner: '2 rotis or rice, vegetable curry, curd (≈450-550 kcal)'
+  // ---------- camera ----------
+  async function startCamera(){
+    try{
+      if (stream){ stopCamera() }
+      const constraints = { video: { facingMode: { exact: facingMode } } }
+      // Not all devices accept exact; try best-effort
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (err) {
+        // fallback: allow browser to pick matching facingMode without exact
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode }, audio: false })
       }
-      const diet = []
-      for (let i=0;i<7;i++) diet.push(Object.assign({ day: `Day ${i+1}` }, sampleDay))
-      return diet
+      video.srcObject = stream
+      await video.play()
+      waitForVideoReady(5000).then(()=>{ cameraReady.textContent = 'Camera: ready'; cameraReady.classList.add('ready') }).catch(()=>{ cameraReady.textContent = 'Camera: not ready'; cameraReady.classList.remove('ready') })
+    }catch(e){
+      message.textContent = 'Camera error: ' + e.message
+      console.error('startCamera error', e)
     }
-
-    // ---------- camera ----------
-    async function startCamera(){
-      try{
-        stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'environment' }, audio:false })
-        video.srcObject = stream
-        await video.play()
-        waitForVideoReady(5000).then(()=>{ cameraReady.textContent = 'Camera: ready'; cameraReady.classList.add('ready') }).catch(()=>{ cameraReady.textContent = 'Camera: not ready'; cameraReady.classList.remove('ready') })
-      }catch(e){
-        message.textContent = 'Camera error: ' + e.message
-        console.error('startCamera error', e)
-      }
-    }
-    function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null } }
-    function waitForVideoReady(timeout=3000){
-      return new Promise((resolve,reject)=>{
-        const start = Date.now()
-        function check(){
-          if (video.videoWidth && video.videoHeight) return resolve()
-          if (Date.now()-start>timeout) return reject(new Error('Camera not ready'))
-          requestAnimationFrame(check)
-        }
-        check()
-      })
-    }
-
-    async function safeCaptureFlow(){
-      showLoading('Capturing photo...')
-      try{
-        await waitForVideoReady(4000)
-        captureImage()
-        message.textContent = 'Photo captured. Now press Record Details or Manual Input.'
-      }catch(err){
-        alert('Unable to capture photo: ' + err.message)
-        console.error(err)
-      }finally{
-        hideLoading()
-      }
-    }
-    function captureImage(){
-      const w = video.videoWidth||0; const h = video.videoHeight||0
-      if (!w||!h) throw new Error('Video has no dimensions')
-      canvas.width=w; canvas.height=h; ctx.drawImage(video,0,0,w,h); capturedDataUrl = canvas.toDataURL('image/jpeg',0.9)
-    }
-    document.getElementById('captureBtn').addEventListener('click', async ()=>{ await safeCaptureFlow() })
-
-    // ---------- voice ----------
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
-    function supportsSpeech(){ return !!SpeechRecognition }
-
-    document.getElementById('recordBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      if (!supportsSpeech()){ alert('Speech recognition not supported. Use Manual Input.'); return }
-      currentFieldIndex = 0; showVoiceBox(); promptVoiceField()
+  }
+  function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null } }
+  function waitForVideoReady(timeout=3000){
+    return new Promise((res,reject)=>{
+      const start = Date.now()
+      function check(){ if (video.videoWidth && video.videoHeight) return res(); if (Date.now()-start>timeout) return reject(new Error('Camera not ready')); requestAnimationFrame(check) }
+      check()
     })
-    function showVoiceBox(){ voiceBox.style.display='block'; recText.textContent = 'Speak clearly when the recorder starts.' }
-    function hideVoiceBox(){ voiceBox.style.display='none' }
-    function promptVoiceField(){
-      const key = fields[currentFieldIndex]
-      let promptLabel = 'Please say your ' + key
-      if (key==='height') promptLabel = 'Please say your height in centimeters (e.g., 150)'
-      if (key==='weight') promptLabel = 'Please say your weight in kilograms (e.g., 45)'
-      if (key==='age') promptLabel = 'Please say your age in years (e.g., 12)'
-      if (key==='name') promptLabel = 'Please say your name (first name)'
-      voiceField.textContent = promptLabel
-      recDot.style.display='inline-block'
-      startRecognitionForField(key)
+  }
+
+  // flip button toggles facingMode and restarts camera
+  flipBtn.addEventListener('click', async ()=>{
+    // toggle
+    facingMode = facingMode === 'user' ? 'environment' : 'user'
+    flipBtn.textContent = (facingMode === 'user') ? 'Flip Camera' : 'Flip Camera'
+    showLoading('Switching camera...')
+    try{ await startCamera(); message.textContent = 'Camera switched. Use the frame to align your face.' }catch(e){ alert('Unable to switch camera: '+ e.message) } finally { hideLoading() }
+  })
+
+  // toggle frame show/hide
+  let frameVisible = true
+  toggleFrameBtn.addEventListener('click', ()=>{
+    frameVisible = !frameVisible
+    if (frameVisible){ frameOverlay.classList.remove('hidden'); frameHint.style.display='block'; toggleFrameBtn.textContent = 'Hide Frame' }
+    else { frameOverlay.classList.add('hidden'); frameHint.style.display='none'; toggleFrameBtn.textContent = 'Show Frame' }
+  })
+
+  // capture (uses full frame; frame is guidance only)
+  async function captureImage(){
+    await waitForVideoReady(3000)
+    const w = video.videoWidth, h = video.videoHeight
+    if (!w||!h) throw new Error('Camera has no size')
+    canvas.width = w; canvas.height = h; ctx.drawImage(video,0,0,w,h)
+    capturedDataUrl = canvas.toDataURL('image/jpeg',0.92)
+    message.textContent = 'Photo captured. Press Analyze Face.'
+  }
+
+  document.getElementById('captureBtn').addEventListener('click', async ()=>{
+    showLoading('Capturing photo...')
+    try{ await captureImage() } catch(e){ alert('Capture failed: '+e.message); console.error(e) } finally{ hideLoading() }
+  })
+
+  // Analyze flow
+  document.getElementById('analyzeBtn').addEventListener('click', async ()=>{
+    if (!capturedDataUrl) return alert('Capture a photo first.')
+    await analyzeFaceAndRender()
+  })
+
+  async function analyzeFaceAndRender(){
+    showLoading('Sending image to AI for analysis...')
+    try{
+      const aiResp = await callAIForFaceAnalysis(capturedDataUrl)
+      const normalized = normalizeFaceAIResponse(aiResp)
+      lastAiResponse = normalized
+      renderFaceReport(normalized)
+      rawJsonToggle.style.display = 'block'
+      rawJson.textContent = JSON.stringify(normalized, null, 2)
+      rawJsonToggle.onclick = ()=>{ rawJson.style.display = rawJson.style.display === 'none' ? 'block' : 'none' }
+      rawJson.style.display = 'none'
+    }catch(e){
+      console.error('analyzeFaceAndRender', e)
+      alert('Analysis failed: ' + (e.message || e))
+    }finally{
+      hideLoading()
     }
-    function startRecognitionForField(key){
-      try{
-        recognizer = new SpeechRecognition()
-        recognizer.lang = 'en-US'
-        recognizer.interimResults = false
-        recognizer.maxAlternatives = 1
-        recText.textContent = 'Listening for ' + key + '...'
-        recognizer.start()
-      }catch(e){ console.warn('recognizer start error',e); recText.textContent='Speech start error'; recDot.style.display='none'; return }
-      recognizer.onresult = (ev)=>{ const text = ev.results[0][0].transcript.trim(); collected[key]=text; recText.textContent='Captured: '+text; recDot.style.display='none' }
-      recognizer.onerror = (ev)=>{ recText.textContent = 'Recognition error: ' + (ev.error||ev.message); recDot.style.display='none' }
-      recognizer.onend = ()=>{ setTimeout(()=>{ currentFieldIndex++; if (currentFieldIndex<fields.length) promptVoiceField(); else { hideVoiceBox(); message.textContent='All details recorded. Press Analyze.' } },600) }
+  }
+
+  function normalizeFaceAIResponse(aiResp){
+    if (!aiResp || typeof aiResp !== 'object') aiResp = {}
+    return {
+      summary: aiResp.summary || 'No summary available.',
+      observations: Array.isArray(aiResp.observations) ? aiResp.observations : [],
+      possible_causes: Array.isArray(aiResp.possible_causes) ? aiResp.possible_causes : [],
+      home_treatments: Array.isArray(aiResp.home_treatments) ? aiResp.home_treatments : [],
+      red_flags: Array.isArray(aiResp.red_flags) ? aiResp.red_flags : [],
+      disclaimer: aiResp.disclaimer || 'This is not medical advice.'
     }
-    voiceNext.addEventListener('click', ()=>{ if (recognizer) try{recognizer.stop()}catch{}; currentFieldIndex++; if (currentFieldIndex<fields.length) promptVoiceField(); else { hideVoiceBox(); message.textContent='Details recorded. Press Analyze.' } })
-    voiceCancel.addEventListener('click', ()=>{ if (recognizer) try{recognizer.abort()}catch{}; hideVoiceBox(); message.textContent='Recording canceled.' })
+  }
 
-    document.getElementById('manualBtn').addEventListener('click', ()=>{
-      if (!capturedDataUrl) return alert('Please capture photo first.')
-      const name = prompt('Enter name'); if (name===null) return; collected.name=name
-      const age = prompt('Enter age (years)'); if (age===null) return; collected.age=age
-      const weight = prompt('Enter weight (kg) from scale'); if (weight===null) return; collected.weight=weight
-      const height = prompt('Enter height (cm) from wall'); if (height===null) return; collected.height=height
-      message.textContent='Details saved. Press Analyze to generate report.'
-    })
+  function renderFaceReport(resp){
+    reportContent.innerHTML = ''
+    const top = document.createElement('div'); top.className='row'
+    const left = document.createElement('div'); left.style.flex='1'
+    const right = document.createElement('div'); right.style.width='180px'
+    const img = document.createElement('img'); img.src = capturedDataUrl; img.alt='captured face'; right.appendChild(img)
+    const h = document.createElement('h3'); h.textContent = 'Face Analysis'
+    const sum = document.createElement('div'); sum.className='small'; sum.textContent = resp.summary
+    left.appendChild(h); left.appendChild(sum)
+    top.appendChild(left); top.appendChild(right)
+    reportContent.appendChild(top)
 
-    // ---------- analyze ----------
-    document.getElementById('analyzeBtn').addEventListener('click', async ()=>{
-      if (!capturedDataUrl) return alert('Capture photo first')
-      if (!collected.name || !collected.age || !collected.weight || !collected.height) return alert('Please provide name, age, weight and height (voice or manual).')
-      await analyzeAndShowReport()
-    })
-
-    async function analyzeAndShowReport(){
-      showLoading('Analyzing and preparing detailed report...')
-      try{
-        const heightNum = Number(collected.height)
-        const weightNum = Number(collected.weight)
-        const bmi = (heightNum && weightNum) ? +(weightNum/((heightNum/100)*(heightNum/100))) : null
-        const bmiCategory = bmi ? (bmi<18.5?'Underweight':(bmi<25?'Normal':(bmi<30?'Overweight':'Obese'))) : '—'
-        const inputs = { name: collected.name, age: collected.age, gender:'unknown', height:heightNum, weight:weightNum, bmi: bmi?+bmi.toFixed(1):null, bmi_category: bmiCategory, goal:'general wellness' }
-
-        let aiResp = null
-        if (OPENAI_API_KEY) aiResp = await callAIForDetailedReport(capturedDataUrl, inputs)
-
-        // defensive normalization
-        if (!aiResp || typeof aiResp !== 'object') aiResp = {}
-        aiResp.summary = aiResp.summary || generateLocalText(inputs)
-        aiResp.observations = Array.isArray(aiResp.observations) ? aiResp.observations : []
-        aiResp.diet = Array.isArray(aiResp.diet) ? aiResp.diet : generateSimpleFallbackDiet(inputs)
-        aiResp.grocery_list = Array.isArray(aiResp.grocery_list) ? aiResp.grocery_list : []
-        aiResp.exercises = Array.isArray(aiResp.exercises) ? aiResp.exercises : []
-        aiResp.follow_up = Array.isArray(aiResp.follow_up) ? aiResp.follow_up : []
-        aiResp.precautions = Array.isArray(aiResp.precautions) ? aiResp.precautions : []
-        aiResp.macros = (aiResp.macros && typeof aiResp.macros === 'object') ? aiResp.macros : null
-        aiResp.bmi = (aiResp.bmi !== undefined) ? aiResp.bmi : inputs.bmi
-        aiResp.bmi_category = aiResp.bmi_category || inputs.bmi_category
-        aiResp.calorie_target = aiResp.calorie_target || null
-        aiResp.disclaimer = aiResp.disclaimer || 'This is not medical advice. Consult a healthcare professional for diagnosis and treatment.'
-
-        lastAiResponse = aiResp // save for debug toggle
-
-        // Render wrapped in try/catch
-        try{
-          renderDetailedReport(inputs, aiResp)
-          // show debug toggle when AI returned something useful (helps troubleshooting)
-          rawJsonToggle.style.display = 'block'
-          rawJson.textContent = JSON.stringify(aiResp, null, 2)
-          rawJsonToggle.onclick = ()=>{ rawJson.style.display = rawJson.style.display === 'none' ? 'block' : 'none' }
-          rawJson.style.display = 'none'
-        }catch(e){
-          console.error('renderDetailedReport error', e)
-          alert('Analysis failed while rendering report: ' + (e.message || e))
-        }
-      }catch(e){
-        console.error('analyzeAndShowReport error', e)
-        alert('Analysis failed: ' + (e.message || e))
-      }finally{
-        hideLoading()
-      }
+    if (resp.observations.length){
+      const oh = document.createElement('h4'); oh.textContent = 'Visible observations'
+      reportContent.appendChild(oh)
+      const ul = document.createElement('ul')
+      resp.observations.forEach(o=>{ const li=document.createElement('li'); li.textContent=o; ul.appendChild(li) })
+      reportContent.appendChild(ul)
     }
 
-    // ---------- AI call ----------
-    async function callAIForDetailedReport(imageDataUrl, inputs){
-      try{
-        const fullPrompt = `
-You are a careful wellness assistant. The user provided a photo (base64) and personal details.
-Return ONLY valid JSON with keys: summary, observations (array), bmi (number|null), bmi_category (string), calorie_target (number|null), macros (object), diet (array of 7 day objects with breakfast/midmorning/lunch/evening/dinner), grocery_list (array), exercises (array), follow_up (array), precautions (array), disclaimer (string).
-Inputs:
-Name: ${inputs.name}
-Age: ${inputs.age}
-Height(cm): ${inputs.height}
-Weight(kg): ${inputs.weight}
-BMI: ${inputs.bmi}
-Image(base64): START ${imageDataUrl.slice(0,200)}... END
+    if (resp.possible_causes.length){
+      const ph = document.createElement('h4'); ph.textContent = 'Possible causes (non-diagnostic)'
+      reportContent.appendChild(ph)
+      const ul = document.createElement('ul')
+      resp.possible_causes.forEach(p=>{ const li=document.createElement('li'); li.textContent=p; ul.appendChild(li) })
+      reportContent.appendChild(ul)
+    }
+
+    if (resp.home_treatments.length){
+      const th = document.createElement('h4'); th.textContent = 'Suggested home-care measures'
+      reportContent.appendChild(th)
+      const ul = document.createElement('ul')
+      resp.home_treatments.forEach(t=>{ const li=document.createElement('li'); li.textContent=t; ul.appendChild(li) })
+      reportContent.appendChild(ul)
+    }
+
+    if (resp.red_flags.length){
+      const rh = document.createElement('h4'); rh.textContent = 'Red flags — seek medical help'
+      reportContent.appendChild(rh)
+      const ul = document.createElement('ul')
+      resp.red_flags.forEach(r=>{ const li=document.createElement('li'); li.innerHTML = `<span class="danger">${r}</span>`; ul.appendChild(li) })
+      reportContent.appendChild(ul)
+    }
+
+    const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'
+    disc.textContent = resp.disclaimer + ' If you see any worrying signs, contact a healthcare professional.'
+    reportContent.appendChild(disc)
+
+    try{ createPDFAndQRFaceReport(resp) }catch(e){ console.warn('PDF creation failed', e) }
+
+    report.style.display = 'block'
+  }
+
+  // AI call (same safe prompt)
+  async function callAIForFaceAnalysis(imageDataUrl){
+    const prompt = `
+You are a cautious visual-health assistant. The user supplied a single face photograph (base64). 
+TASK: Analyze visible facial signs only — do not attempt to identify the person or guess identity. Do NOT provide medical diagnoses. Instead return ONLY valid JSON with these keys:
+
+- summary: short (1-2 sentence) non-diagnostic description of visible appearance.
+- observations: array of short strings describing visible signs.
+- possible_causes: array of short strings listing plausible non-diagnostic causes.
+- home_treatments: array of safe, brief home-care suggestions.
+- red_flags: array of short strings describing urgent signs that should prompt immediate medical attention.
+- disclaimer: short reminder that this is not medical advice.
+
+Constraints:
+- Return only JSON. Keep arrays present (use empty arrays if nothing).
+- Use cautious language ("may", "appears to", etc.)
+Input: image base64 starts: ${imageDataUrl.slice(0,200)} ... (truncated)
 Return only JSON.
-        `.trim()
+    `.trim()
 
-        const body = { model: OPENAI_MODEL, input: fullPrompt }
-        const res = await fetch('https://api.openai.com/v1/responses', {
-          method:'POST',
-          headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY },
-          body: JSON.stringify(body)
-        })
-        if (!res.ok){
-          const t = await res.text()
-          console.error('AI API error', res.status, t)
-          return null
-        }
-        const j = await res.json()
-        const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-        try{
-          return JSON.parse(text)
-        }catch(e){
-          console.warn('AI returned non-JSON; using text as summary', e)
-          return { summary: text }
-        }
-      }catch(e){
-        console.error('callAIForDetailedReport error', e)
-        return null
+    const body = { model: OPENAI_MODEL, input: prompt }
+    try{
+      const res = await fetch('https://api.openai.com/v1/responses', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + OPENAI_API_KEY },
+        body: JSON.stringify(body)
+      })
+      if (!res.ok){
+        const t = await res.text()
+        console.error('AI API error', res.status, t)
+        throw new Error('AI service error')
       }
-    }
-
-    // ---------- render ----------
-    function renderDetailedReport(inputs, aiResp){
-      // safety: ensure arrays so we never run forEach on undefined
-      const observations = Array.isArray(aiResp.observations) ? aiResp.observations : []
-      const diet = Array.isArray(aiResp.diet) ? aiResp.diet : generateSimpleFallbackDiet(inputs)
-      const grocery = Array.isArray(aiResp.grocery_list) ? aiResp.grocery_list : []
-      const exercises = Array.isArray(aiResp.exercises) ? aiResp.exercises : []
-      const follow_up = Array.isArray(aiResp.follow_up) ? aiResp.follow_up : []
-      const precautions = Array.isArray(aiResp.precautions) ? aiResp.precautions : []
-      const macros = (aiResp.macros && typeof aiResp.macros === 'object') ? aiResp.macros : null
-
-      reportContent.innerHTML = ''
-
-      // top metrics
-      const metrics = document.createElement('div'); metrics.className='row'
-      const leftMetric = document.createElement('div'); leftMetric.style.flex='1'
-      const rightMetric = document.createElement('div'); rightMetric.style.width='200px'
-      const img = document.createElement('img'); img.src = capturedDataUrl || ''; img.alt='photo'; rightMetric.appendChild(img)
-      const title = document.createElement('h3'); title.textContent = inputs.name + ' — Personalized Health Report'; leftMetric.appendChild(title)
-      const summary = document.createElement('div'); summary.className='small'; summary.textContent = aiResp.summary || ''; leftMetric.appendChild(summary)
-
-      const bmiBox = document.createElement('div'); bmiBox.style.marginTop='8px'
-      bmiBox.innerHTML = `<div class="metric"><div class="m"><strong>BMI</strong><div>${aiResp.bmi ?? inputs.bmi ?? '—'}</div></div>
-        <div class="m"><strong>Category</strong><div>${aiResp.bmi_category ?? inputs.bmi_category ?? '—'}</div></div>
-        <div class="m"><strong>Calories</strong><div>${aiResp.calorie_target ? aiResp.calorie_target + ' kcal/day' : '—'}</div></div></div>`
-      leftMetric.appendChild(bmiBox)
-
-      metrics.appendChild(leftMetric); metrics.appendChild(rightMetric)
-      reportContent.appendChild(metrics)
-
-      // Observations
-      if (observations.length){
-        const h = document.createElement('h4'); h.textContent = 'Visible Observations'; reportContent.appendChild(h)
-        const ul = document.createElement('ul')
-        observations.forEach(o => { const li = document.createElement('li'); li.textContent = o; ul.appendChild(li) })
-        reportContent.appendChild(ul)
-      }
-
-      // Diet
-      if (diet.length){
-        const h = document.createElement('h4'); h.textContent = '7-day Meal Plan'; reportContent.appendChild(h)
-        diet.forEach(day => {
-          const box = document.createElement('div'); box.className='diet-day'
-          const dtitle = document.createElement('strong'); dtitle.textContent = day.day || 'Day'; box.appendChild(dtitle)
-          const list = document.createElement('ul')
-          ;['breakfast','midmorning','lunch','evening','dinner'].forEach(k => {
-            const li = document.createElement('li'); li.textContent = (day && day[k]) ? `${k.charAt(0).toUpperCase()+k.slice(1)}: ${day[k]}` : `${k.charAt(0).toUpperCase()+k.slice(1)}: —`
-            list.appendChild(li)
-          })
-          box.appendChild(list); reportContent.appendChild(box)
-        })
-      }
-
-      // Grocery
-      if (grocery.length){
-        const h = document.createElement('h4'); h.textContent = 'Grocery Suggestions'; reportContent.appendChild(h)
-        const ul = document.createElement('ul'); grocery.forEach(g => { const li = document.createElement('li'); li.textContent = g; ul.appendChild(li) }); reportContent.appendChild(ul)
-      }
-
-      // Macros
-      if (macros){
-        const h = document.createElement('h4'); h.textContent = 'Suggested Macros'; reportContent.appendChild(h)
-        const p = document.createElement('div'); p.className='small'
-        if (macros.protein_g || macros.protein_pct) p.innerHTML += `Protein: ${macros.protein_g ? macros.protein_g + ' g' : macros.protein_pct + '%'}<br>`
-        if (macros.carbs_g || macros.carbs_pct) p.innerHTML += `Carbs: ${macros.carbs_g ? macros.carbs_g + ' g' : macros.carbs_pct + '%'}<br>`
-        if (macros.fats_g || macros.fats_pct) p.innerHTML += `Fats: ${macros.fats_g ? macros.fats_g + ' g' : macros.fats_pct + '%'}<br>`
-        reportContent.appendChild(p)
-      }
-
-      // Exercises
-      if (exercises.length){
-        const h = document.createElement('h4'); h.textContent = 'Exercise Suggestions'; reportContent.appendChild(h)
-        const ul = document.createElement('ul'); exercises.forEach(e => { const li=document.createElement('li'); li.textContent=e; ul.appendChild(li) }); reportContent.appendChild(ul)
-      }
-
-      // Follow-up & precautions
-      if (follow_up.length){ const h = document.createElement('h4'); h.textContent='Recommended Follow-up'; reportContent.appendChild(h); const ul=document.createElement('ul'); follow_up.forEach(f=>{ const li=document.createElement('li'); li.textContent=f; ul.appendChild(li) }); reportContent.appendChild(ul) }
-      if (precautions.length){ const h = document.createElement('h4'); h.textContent='Precautions'; reportContent.appendChild(h); const ul=document.createElement('ul'); precautions.forEach(p=>{ const li=document.createElement('li'); li.textContent=p; ul.appendChild(li) }); reportContent.appendChild(ul) }
-
-      // disclaimer
-      const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'; disc.textContent = aiResp.disclaimer || 'This is not medical advice.'
-      reportContent.appendChild(disc)
-
-      // pdf & qr
-      report.style.display = 'block'
-      speak('Your detailed report is ready.')
-
-      try{ createPDFAndQRDetailed(inputs, capturedDataUrl, aiResp) }catch(e){ console.warn('PDF create failed', e) }
-    }
-
-    // ---------- create PDF & QR (same safe style) ----------
-    async function createPDFAndQRDetailed(inputs, imageDataUrl, aiResp){
+      const j = await res.json()
+      const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
       try{
-        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-        const { jsPDF } = window.jspdf
-        const doc = new jsPDF({unit:'pt',format:'a4'})
-        doc.setFontSize(16); doc.text('AI Smart Health Monitor - Detailed Report',40,50)
-        doc.setFontSize(11); doc.text(`Name: ${inputs.name}   Age: ${inputs.age}`,40,75)
-        doc.text(`Height: ${inputs.height} cm   Weight: ${inputs.weight} kg   BMI: ${aiResp.bmi ?? inputs.bmi ?? '—'}`,40,95)
-        doc.setFontSize(12); doc.text('Summary:',40,125)
-        const summaryText = aiResp.summary || ''
-        const split = doc.splitTextToSize(summaryText,520)
-        doc.setFontSize(10); doc.text(split,40,145)
-        let y = 145 + split.length*12 + 8
-
-        if (Array.isArray(aiResp.observations) && aiResp.observations.length){
-          doc.setFontSize(11); doc.text('Observations:',40,y); y+=14
-          aiResp.observations.forEach(o => { const s = doc.splitTextToSize('- '+o,520); doc.setFontSize(10); doc.text(s,40,y); y += s.length*12 })
-          y += 6
-        }
-
-        if (Array.isArray(aiResp.diet) && aiResp.diet.length){
-          doc.setFontSize(11); doc.text('7-day Diet Plan (summary):',40,y); y+=14
-          aiResp.diet.forEach((day,i) => {
-            const title = `${day.day || ('Day '+(i+1))}:`
-            const s = doc.splitTextToSize(`${title} Breakfast: ${day.breakfast || '--'} | Lunch: ${day.lunch || '--'} | Dinner: ${day.dinner || '--'}`,520)
-            doc.setFontSize(10); doc.text(s,40,y); y += s.length*12
-            if (y > 700) { doc.addPage(); y = 40 }
-          })
-        }
-
-        try{ doc.addImage(imageDataUrl,'JPEG',350,60,180,180) }catch(e){}
-        doc.setFontSize(9); doc.text('Disclaimer: This report is informational and not medical advice.',40,770)
-        const pdfData = doc.output('datauristring')
-        const encoded = encodeURIComponent(pdfData)
-        const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded
-        const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
-        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'
-        openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
-        reportContent.appendChild(openBtn)
-      }catch(e){ console.warn('PDF/QR creation failed', e) }
+        return JSON.parse(text)
+      }catch(e){
+        console.warn('AI returned non-JSON, wrapping as summary', e)
+        return { summary: text, observations: [], possible_causes: [], home_treatments: [], red_flags: [], disclaimer: 'This is not medical advice.' }
+      }
+    }catch(e){
+      console.error('callAIForFaceAnalysis error', e)
+      return null
     }
+  }
 
-    function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
-    function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
+  // PDF + QR
+  async function createPDFAndQRFaceReport(resp){
+    try{
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      const { jsPDF } = window.jspdf
+      const doc = new jsPDF({unit:'pt',format:'a4'})
+      doc.setFontSize(16); doc.text('Face Scan Report',40,50)
+      doc.setFontSize(11); doc.text('Non-diagnostic face scan (visual-only).',40,70)
+      doc.setFontSize(12); doc.text('Summary:',40,100)
+      const split = doc.splitTextToSize(resp.summary || '',520)
+      doc.setFontSize(10); doc.text(split,40,120)
+      let y = 120 + split.length*12 + 8
 
-    closeReport.addEventListener('click', ()=>{ report.style.display='none'; message.textContent='Place the person in frame and press Capture Photo.'; collected={name:'',age:'',weight:'',height:''}; capturedDataUrl=null; rawJsonToggle.style.display='none'; rawJson.style.display='none' })
+      if (Array.isArray(resp.observations) && resp.observations.length){
+        doc.setFontSize(11); doc.text('Observations:',40,y); y+=14
+        resp.observations.forEach(o=>{ const s=doc.splitTextToSize('- '+o,520); doc.setFontSize(10); doc.text(s,40,y); y+= s.length*12 })
+        y+=6
+      }
+      if (Array.isArray(resp.home_treatments) && resp.home_treatments.length){
+        doc.setFontSize(11); doc.text('Home treatments (summary):',40,y); y+=14
+        resp.home_treatments.forEach(t=>{ const s = doc.splitTextToSize('- '+t,520); doc.setFontSize(10); doc.text(s,40,y); y += s.length*12 })
+      }
 
-    // start camera
-    startCamera()
-    window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
+      try{ doc.addImage(capturedDataUrl, 'JPEG', 360, 60, 180, 180) }catch(e){}
+      const pdfData = doc.output('datauristring')
+      const encoded = encodeURIComponent(pdfData)
+      const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl=' + encoded
+      const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
+      const openBtn = document.createElement('button'); openBtn.textContent = 'Open Report'; openBtn.style.marginLeft='12px'
+      openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
+      reportContent.appendChild(openBtn)
+    }catch(e){ console.warn('PDF create error', e) }
+  }
+
+  function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
+  function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
+
+  document.getElementById('closeReport').addEventListener('click', ()=>{
+    report.style.display = 'none'
+    message.textContent = 'Frame the face, press Capture Photo, then Analyze Face.'
+    rawJsonToggle.style.display = 'none'; rawJson.style.display = 'none'
+  })
+
+  // start camera on load
+  startCamera()
+  window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
+
   </script>
 </body>
 </html>
