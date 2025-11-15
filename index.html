@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AI Smart Health Monitor — Fixed</title>
+  <title>AI Smart Health Monitor — Fixed helper</title>
   <style>
     :root{--accent:#0b6efd}
     html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial}
@@ -46,7 +46,7 @@
       <canvas id="photoCanvas"></canvas>
 
       <div class="overlay">
-        <div id="message" class="bubble">Place person in frame and press <strong>Capture Photo</strong>. Then Record Details (voice) or Manual Input.</div>
+        <div id="message" class="bubble">Place the person in frame and press <strong>Capture Photo</strong>. Then use <strong>Record Details</strong> to speak name, age, weight and height step-by-step.</div>
 
         <div class="controls" role="group" aria-label="controls">
           <button id="captureBtn">Capture Photo</button>
@@ -86,7 +86,9 @@
   </div>
 
   <script>
-    // ---------- CONFIG ----------
+    // =======================
+    // CONFIG
+    // =======================
     const OPENAI_API_KEY = 'AIzaSyCFJWOOTNAROqa5urElGCzi1BOjnr_nuYc'
     const OPENAI_MODEL = 'gpt-4o-mini'
 
@@ -108,7 +110,7 @@
     const closeReport = document.getElementById('closeReport')
     const cameraReady = document.getElementById('cameraReady')
 
-    // state
+    // State
     let stream = null
     let capturedDataUrl = null
     let collected = { name:'', age:'', weight:'', height:'' }
@@ -117,6 +119,27 @@
     let recognizer = null
 
     const CONTROL_BUTTON_IDS = ['captureBtn','recordBtn','manualBtn','analyzeBtn']
+
+    // -----------------------
+    // Helpers that were missing earlier
+    // -----------------------
+    function generateLocalText(inputs){
+      const bmi = inputs.bmi || '—'
+      return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.`
+    }
+
+    function generateSimpleFallbackDiet(inputs){
+      const sampleDay = {
+        breakfast: '1 bowl oats/upma/poha + 1 small banana (approx 300 kcal)',
+        midmorning: 'Handful of peanuts or roasted chana (approx 100 kcal)',
+        lunch: '1 cup rice or 2 chapatis, 1 bowl dal, 1 cup mixed vegetables, salad (approx 500-600 kcal)',
+        evening: '1 cup tea/ buttermilk + 1 fruit (approx 150 kcal)',
+        dinner: '2 chapatis or 1 bowl rice, vegetable curry, curd (approx 450-550 kcal)'
+      }
+      const diet = []
+      for (let i=0;i<7;i++) diet.push(Object.assign({ day: `Day ${i+1}` }, sampleDay))
+      return diet
+    }
 
     // ---------- helpers ----------
     function showLoading(text = 'Preparing report...'){
@@ -137,6 +160,9 @@
     window.addEventListener('error', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
     window.addEventListener('unhandledrejection', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
 
+    // -----------------------
+    // Camera
+    // -----------------------
     async function startCamera(){
       try{
         stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'environment' }, audio:false })
@@ -252,11 +278,11 @@
         let aiResp = null
         if (OPENAI_API_KEY) aiResp = await callAIForDetailedReport(capturedDataUrl, inputs)
 
-        // Normalize / defensive defaults so forEach never runs on undefined
+        // Normalize / defensive defaults
         if (!aiResp || typeof aiResp !== 'object') aiResp = {}
         aiResp.summary = aiResp.summary || (generateLocalText(inputs))
         aiResp.observations = Array.isArray(aiResp.observations) ? aiResp.observations : []
-        aiResp.diet = Array.isArray(aiResp.diet) ? aiResp.diet : []
+        aiResp.diet = Array.isArray(aiResp.diet) ? aiResp.diet : generateSimpleFallbackDiet(inputs)
         aiResp.grocery_list = Array.isArray(aiResp.grocery_list) ? aiResp.grocery_list : []
         aiResp.exercises = Array.isArray(aiResp.exercises) ? aiResp.exercises : []
         aiResp.follow_up = Array.isArray(aiResp.follow_up) ? aiResp.follow_up : []
@@ -267,7 +293,6 @@
         aiResp.calorie_target = aiResp.calorie_target || null
         aiResp.disclaimer = aiResp.disclaimer || 'This is not medical advice. Consult a healthcare professional for diagnosis and treatment.'
 
-        // render safely
         try{
           renderDetailedReport(inputs, aiResp)
         }catch(e){
@@ -282,11 +307,9 @@
       }
     }
 
-    // AI call (same as before)
+    // AI call
     async function callAIForDetailedReport(imageDataUrl, inputs){
       try{
-        const prompt = `You are a careful wellness assistant. ... (prompt truncated for brevity in code block)`
-        // Use the detailed prompt you used previously (keep same structure). For brevity here we keep same call format:
         const fullPrompt = `
 You are a careful wellness assistant. The user provided a photo (base64) and personal details.
 Return ONLY valid JSON with keys: summary, observations (array), bmi (number|null), bmi_category (string), calorie_target (number|null), macros (object), diet (array of 7 day objects with breakfast/midmorning/lunch/evening/dinner), grocery_list (array), exercises (array), follow_up (array), precautions (array), disclaimer (string).
@@ -304,20 +327,13 @@ Return only JSON.
         if (!res.ok){ const t = await res.text(); console.error('AI API error', res.status, t); return null }
         const j = await res.json()
         const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-        try{ return JSON.parse(text) }catch(e){
-          console.warn('AI returned non-JSON; using fallback summary', e)
-          return { summary: text }
-        }
-      }catch(e){
-        console.error('callAIForDetailedReport error', e)
-        return null
-      }
+        try{ return JSON.parse(text) }catch(e){ console.warn('AI returned non-JSON; using fallback summary', e); return { summary: text } }
+      }catch(e){ console.error('callAIForDetailedReport error', e); return null }
     }
 
-    // Render report (same as before, but safe)
+    // Render report
     function renderDetailedReport(inputs, aiResp){
       reportContent.innerHTML = ''
-      // top metrics
       const metrics = document.createElement('div'); metrics.className='row'
       const leftMetric = document.createElement('div'); leftMetric.style.flex='1'
       const rightMetric = document.createElement('div'); rightMetric.style.width='200px'
@@ -335,14 +351,12 @@ Return only JSON.
       metrics.appendChild(leftMetric); metrics.appendChild(rightMetric)
       reportContent.appendChild(metrics)
 
-      // Observations
       if (aiResp.observations && aiResp.observations.length){
         const h = document.createElement('h4'); h.textContent = 'Visible Observations'; reportContent.appendChild(h)
         const ul = document.createElement('ul'); aiResp.observations.forEach(o => { const li = document.createElement('li'); li.textContent = o; ul.appendChild(li) })
         reportContent.appendChild(ul)
       }
 
-      // Diet plan
       if (aiResp.diet && aiResp.diet.length){
         const h = document.createElement('h4'); h.textContent = '7-day Meal Plan'; reportContent.appendChild(h)
         aiResp.diet.forEach(day => {
@@ -358,14 +372,12 @@ Return only JSON.
         })
       }
 
-      // Grocery list
       if (aiResp.grocery_list && aiResp.grocery_list.length){
         const h = document.createElement('h4'); h.textContent = 'Grocery Suggestions'; reportContent.appendChild(h)
         const ul = document.createElement('ul'); aiResp.grocery_list.forEach(g => { const li = document.createElement('li'); li.textContent = g; ul.appendChild(li) })
         reportContent.appendChild(ul)
       }
 
-      // Macros
       if (aiResp.macros){
         const h = document.createElement('h4'); h.textContent = 'Suggested Macros'; reportContent.appendChild(h)
         const p = document.createElement('div'); p.className='small'
@@ -375,28 +387,24 @@ Return only JSON.
         reportContent.appendChild(p)
       }
 
-      // Exercises
       if (aiResp.exercises && aiResp.exercises.length){
         const h = document.createElement('h4'); h.textContent = 'Exercise Suggestions'; reportContent.appendChild(h)
         const ul = document.createElement('ul'); aiResp.exercises.forEach(e => { const li=document.createElement('li'); li.textContent=e; ul.appendChild(li) }); reportContent.appendChild(ul)
       }
 
-      // Follow-up & precautions
       if (aiResp.follow_up && aiResp.follow_up.length){ const h = document.createElement('h4'); h.textContent='Recommended Follow-up'; reportContent.appendChild(h); const ul=document.createElement('ul'); aiResp.follow_up.forEach(f=>{ const li=document.createElement('li'); li.textContent=f; ul.appendChild(li) }); reportContent.appendChild(ul) }
       if (aiResp.precautions && aiResp.precautions.length){ const h = document.createElement('h4'); h.textContent='Precautions'; reportContent.appendChild(h); const ul=document.createElement('ul'); aiResp.precautions.forEach(p=>{ const li=document.createElement('li'); li.textContent=p; ul.appendChild(li) }); reportContent.appendChild(ul) }
 
-      // disclaimer
-      const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'; disc.textContent = aiResp.disclaimer || ''
+      const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'; disc.textContent = aiResp.disclaimer || 'This is not medical advice.'
       reportContent.appendChild(disc)
 
       report.style.display = 'block'
       speak('Your detailed report is ready.')
 
-      // PDF+QR (wrapped so failures don't break UI)
       try{ createPDFAndQRDetailed(inputs, capturedDataUrl, aiResp) }catch(e){ console.warn('PDF creation failed', e) }
     }
 
-    // create pdf & qr (same as previous, unchanged)
+    // create pdf & qr
     async function createPDFAndQRDetailed(inputs, imageDataUrl, aiResp){
       try{
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
@@ -433,10 +441,9 @@ Return only JSON.
         const encoded = encodeURIComponent(pdfData)
         const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded
         const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
-        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') }); reportContent.appendChild(openBtn)
-      }catch(e){
-        console.warn('PDF/QR creation failed', e)
-      }
+        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
+        reportContent.appendChild(openBtn)
+      }catch(e){ console.warn('PDF/QR creation failed', e) }
     }
 
     function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
@@ -444,7 +451,7 @@ Return only JSON.
 
     closeReport.addEventListener('click', ()=>{ report.style.display='none'; message.textContent='Place the person in frame and press Capture Photo.'; collected={name:'',age:'',weight:'',height:''}; capturedDataUrl=null })
 
-    // start
+    // init
     startCamera()
     window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
   </script>
