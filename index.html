@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AI Smart Health Monitor — Fixed helper</title>
+  <title>AI Smart Health Monitor — Defensive</title>
   <style>
     :root{--accent:#0b6efd}
     html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial}
@@ -31,9 +31,11 @@
     #cameraReady{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);font-size:13px;z-index:2000}
     #cameraReady.ready{background:rgba(0,128,0,0.45);border-color:rgba(0,255,0,0.12)}
     .overlay .bubble { pointer-events: none; }
-    .diet-day{background:#f6f8fb;padding:10px;border-radius:8px;margin-bottom:8px}
+    .diet-day{background:#f6f8fb;padding:10px;border-radius:8px;margin-bottom:8px;color:#111}
     .metric{display:flex;gap:12px;align-items:center}
     .metric .m{background:#f0f4ff;padding:8px;border-radius:8px}
+    #rawJsonToggle{margin-top:12px;background:#eee;color:#111;padding:8px;border-radius:8px;cursor:pointer;border:1px solid #ccc}
+    #rawJson{white-space:pre-wrap;background:#f8f8f8;padding:10px;border-radius:8px;color:#111;display:none;max-height:240px;overflow:auto}
   </style>
 </head>
 <body>
@@ -75,20 +77,23 @@
       </div>
 
       <div id="report">
-        <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px">
           <h2>Health Report</h2>
-          <div><button id="closeReport">Close</button></div>
+          <div style="display:flex;gap:8px">
+            <button id="closeReport">Close</button>
+          </div>
         </div>
         <div id="reportContent" style="margin-top:12px"></div>
+
+        <div id="rawJsonToggle" style="display:none">Show AI JSON (debug)</div>
+        <pre id="rawJson"></pre>
       </div>
 
     </div>
   </div>
 
   <script>
-    // =======================
-    // CONFIG
-    // =======================
+    // ---------- CONFIG ----------
     const OPENAI_API_KEY = 'AIzaSyCFJWOOTNAROqa5urElGCzi1BOjnr_nuYc'
     const OPENAI_MODEL = 'gpt-4o-mini'
 
@@ -109,39 +114,21 @@
     const reportContent = document.getElementById('reportContent')
     const closeReport = document.getElementById('closeReport')
     const cameraReady = document.getElementById('cameraReady')
+    const rawJsonToggle = document.getElementById('rawJsonToggle')
+    const rawJson = document.getElementById('rawJson')
 
-    // State
+    // state
     let stream = null
     let capturedDataUrl = null
     let collected = { name:'', age:'', weight:'', height:'' }
     const fields = ['name','age','weight','height']
     let currentFieldIndex = 0
     let recognizer = null
+    let lastAiResponse = null
 
     const CONTROL_BUTTON_IDS = ['captureBtn','recordBtn','manualBtn','analyzeBtn']
 
-    // -----------------------
-    // Helpers that were missing earlier
-    // -----------------------
-    function generateLocalText(inputs){
-      const bmi = inputs.bmi || '—'
-      return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.`
-    }
-
-    function generateSimpleFallbackDiet(inputs){
-      const sampleDay = {
-        breakfast: '1 bowl oats/upma/poha + 1 small banana (approx 300 kcal)',
-        midmorning: 'Handful of peanuts or roasted chana (approx 100 kcal)',
-        lunch: '1 cup rice or 2 chapatis, 1 bowl dal, 1 cup mixed vegetables, salad (approx 500-600 kcal)',
-        evening: '1 cup tea/ buttermilk + 1 fruit (approx 150 kcal)',
-        dinner: '2 chapatis or 1 bowl rice, vegetable curry, curd (approx 450-550 kcal)'
-      }
-      const diet = []
-      for (let i=0;i<7;i++) diet.push(Object.assign({ day: `Day ${i+1}` }, sampleDay))
-      return diet
-    }
-
-    // ---------- helpers ----------
+    // ---------- small helpers ----------
     function showLoading(text = 'Preparing report...'){
       loadingText.textContent = text
       loading.style.display = 'flex'
@@ -160,9 +147,21 @@
     window.addEventListener('error', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
     window.addEventListener('unhandledrejection', (e)=>{ console.error(e); try{ hideLoading() }catch{} })
 
-    // -----------------------
-    // Camera
-    // -----------------------
+    function generateLocalText(inputs){ const bmi = inputs.bmi || '—'; return `Automatic wellness summary. BMI: ${bmi}. Follow balanced diet, stay hydrated, and consult a doctor for specific concerns.` }
+    function generateSimpleFallbackDiet(inputs){
+      const sampleDay = {
+        breakfast: 'Oats/upma/poha + banana (≈300 kcal)',
+        midmorning: 'Handful of nuts (≈100 kcal)',
+        lunch: 'Rice/2 rotis, dal, vegetable, salad (≈500-600 kcal)',
+        evening: 'Buttermilk + fruit (≈150 kcal)',
+        dinner: '2 rotis or rice, vegetable curry, curd (≈450-550 kcal)'
+      }
+      const diet = []
+      for (let i=0;i<7;i++) diet.push(Object.assign({ day: `Day ${i+1}` }, sampleDay))
+      return diet
+    }
+
+    // ---------- camera ----------
     async function startCamera(){
       try{
         stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: 'environment' }, audio:false })
@@ -187,7 +186,6 @@
       })
     }
 
-    // capture
     async function safeCaptureFlow(){
       showLoading('Capturing photo...')
       try{
@@ -208,7 +206,7 @@
     }
     document.getElementById('captureBtn').addEventListener('click', async ()=>{ await safeCaptureFlow() })
 
-    // voice recognition
+    // ---------- voice ----------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || null
     function supportsSpeech(){ return !!SpeechRecognition }
 
@@ -219,7 +217,6 @@
     })
     function showVoiceBox(){ voiceBox.style.display='block'; recText.textContent = 'Speak clearly when the recorder starts.' }
     function hideVoiceBox(){ voiceBox.style.display='none' }
-
     function promptVoiceField(){
       const key = fields[currentFieldIndex]
       let promptLabel = 'Please say your ' + key
@@ -231,7 +228,6 @@
       recDot.style.display='inline-block'
       startRecognitionForField(key)
     }
-
     function startRecognitionForField(key){
       try{
         recognizer = new SpeechRecognition()
@@ -245,7 +241,6 @@
       recognizer.onerror = (ev)=>{ recText.textContent = 'Recognition error: ' + (ev.error||ev.message); recDot.style.display='none' }
       recognizer.onend = ()=>{ setTimeout(()=>{ currentFieldIndex++; if (currentFieldIndex<fields.length) promptVoiceField(); else { hideVoiceBox(); message.textContent='All details recorded. Press Analyze.' } },600) }
     }
-
     voiceNext.addEventListener('click', ()=>{ if (recognizer) try{recognizer.stop()}catch{}; currentFieldIndex++; if (currentFieldIndex<fields.length) promptVoiceField(); else { hideVoiceBox(); message.textContent='Details recorded. Press Analyze.' } })
     voiceCancel.addEventListener('click', ()=>{ if (recognizer) try{recognizer.abort()}catch{}; hideVoiceBox(); message.textContent='Recording canceled.' })
 
@@ -258,7 +253,7 @@
       message.textContent='Details saved. Press Analyze to generate report.'
     })
 
-    // Analyze flow (with defensive normalization)
+    // ---------- analyze ----------
     document.getElementById('analyzeBtn').addEventListener('click', async ()=>{
       if (!capturedDataUrl) return alert('Capture photo first')
       if (!collected.name || !collected.age || !collected.weight || !collected.height) return alert('Please provide name, age, weight and height (voice or manual).')
@@ -268,7 +263,6 @@
     async function analyzeAndShowReport(){
       showLoading('Analyzing and preparing detailed report...')
       try{
-        // local BMI calc
         const heightNum = Number(collected.height)
         const weightNum = Number(collected.weight)
         const bmi = (heightNum && weightNum) ? +(weightNum/((heightNum/100)*(heightNum/100))) : null
@@ -278,9 +272,9 @@
         let aiResp = null
         if (OPENAI_API_KEY) aiResp = await callAIForDetailedReport(capturedDataUrl, inputs)
 
-        // Normalize / defensive defaults
+        // defensive normalization
         if (!aiResp || typeof aiResp !== 'object') aiResp = {}
-        aiResp.summary = aiResp.summary || (generateLocalText(inputs))
+        aiResp.summary = aiResp.summary || generateLocalText(inputs)
         aiResp.observations = Array.isArray(aiResp.observations) ? aiResp.observations : []
         aiResp.diet = Array.isArray(aiResp.diet) ? aiResp.diet : generateSimpleFallbackDiet(inputs)
         aiResp.grocery_list = Array.isArray(aiResp.grocery_list) ? aiResp.grocery_list : []
@@ -293,8 +287,16 @@
         aiResp.calorie_target = aiResp.calorie_target || null
         aiResp.disclaimer = aiResp.disclaimer || 'This is not medical advice. Consult a healthcare professional for diagnosis and treatment.'
 
+        lastAiResponse = aiResp // save for debug toggle
+
+        // Render wrapped in try/catch
         try{
           renderDetailedReport(inputs, aiResp)
+          // show debug toggle when AI returned something useful (helps troubleshooting)
+          rawJsonToggle.style.display = 'block'
+          rawJson.textContent = JSON.stringify(aiResp, null, 2)
+          rawJsonToggle.onclick = ()=>{ rawJson.style.display = rawJson.style.display === 'none' ? 'block' : 'none' }
+          rawJson.style.display = 'none'
         }catch(e){
           console.error('renderDetailedReport error', e)
           alert('Analysis failed while rendering report: ' + (e.message || e))
@@ -307,7 +309,7 @@
       }
     }
 
-    // AI call
+    // ---------- AI call ----------
     async function callAIForDetailedReport(imageDataUrl, inputs){
       try{
         const fullPrompt = `
@@ -321,90 +323,124 @@ Weight(kg): ${inputs.weight}
 BMI: ${inputs.bmi}
 Image(base64): START ${imageDataUrl.slice(0,200)}... END
 Return only JSON.
-        `
-        const body = { model: OPENAI_MODEL, input: fullPrompt.trim() }
-        const res = await fetch('https://api.openai.com/v1/responses', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY }, body: JSON.stringify(body) })
-        if (!res.ok){ const t = await res.text(); console.error('AI API error', res.status, t); return null }
+        `.trim()
+
+        const body = { model: OPENAI_MODEL, input: fullPrompt }
+        const res = await fetch('https://api.openai.com/v1/responses', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+OPENAI_API_KEY },
+          body: JSON.stringify(body)
+        })
+        if (!res.ok){
+          const t = await res.text()
+          console.error('AI API error', res.status, t)
+          return null
+        }
         const j = await res.json()
         const text = j.output_text || (j.output && j.output[0] && j.output[0].content && j.output[0].content[0] && j.output[0].content[0].text) || JSON.stringify(j)
-        try{ return JSON.parse(text) }catch(e){ console.warn('AI returned non-JSON; using fallback summary', e); return { summary: text } }
-      }catch(e){ console.error('callAIForDetailedReport error', e); return null }
+        try{
+          return JSON.parse(text)
+        }catch(e){
+          console.warn('AI returned non-JSON; using text as summary', e)
+          return { summary: text }
+        }
+      }catch(e){
+        console.error('callAIForDetailedReport error', e)
+        return null
+      }
     }
 
-    // Render report
+    // ---------- render ----------
     function renderDetailedReport(inputs, aiResp){
+      // safety: ensure arrays so we never run forEach on undefined
+      const observations = Array.isArray(aiResp.observations) ? aiResp.observations : []
+      const diet = Array.isArray(aiResp.diet) ? aiResp.diet : generateSimpleFallbackDiet(inputs)
+      const grocery = Array.isArray(aiResp.grocery_list) ? aiResp.grocery_list : []
+      const exercises = Array.isArray(aiResp.exercises) ? aiResp.exercises : []
+      const follow_up = Array.isArray(aiResp.follow_up) ? aiResp.follow_up : []
+      const precautions = Array.isArray(aiResp.precautions) ? aiResp.precautions : []
+      const macros = (aiResp.macros && typeof aiResp.macros === 'object') ? aiResp.macros : null
+
       reportContent.innerHTML = ''
+
+      // top metrics
       const metrics = document.createElement('div'); metrics.className='row'
       const leftMetric = document.createElement('div'); leftMetric.style.flex='1'
       const rightMetric = document.createElement('div'); rightMetric.style.width='200px'
-      const img = document.createElement('img'); img.src = capturedDataUrl; img.alt='photo'
-      rightMetric.appendChild(img)
-      const title = document.createElement('h3'); title.textContent = inputs.name + ' — Personalized Health Report'
-      leftMetric.appendChild(title)
-      const summary = document.createElement('div'); summary.className='small'; summary.textContent = aiResp.summary || ''
-      leftMetric.appendChild(summary)
+      const img = document.createElement('img'); img.src = capturedDataUrl || ''; img.alt='photo'; rightMetric.appendChild(img)
+      const title = document.createElement('h3'); title.textContent = inputs.name + ' — Personalized Health Report'; leftMetric.appendChild(title)
+      const summary = document.createElement('div'); summary.className='small'; summary.textContent = aiResp.summary || ''; leftMetric.appendChild(summary)
+
       const bmiBox = document.createElement('div'); bmiBox.style.marginTop='8px'
       bmiBox.innerHTML = `<div class="metric"><div class="m"><strong>BMI</strong><div>${aiResp.bmi ?? inputs.bmi ?? '—'}</div></div>
         <div class="m"><strong>Category</strong><div>${aiResp.bmi_category ?? inputs.bmi_category ?? '—'}</div></div>
         <div class="m"><strong>Calories</strong><div>${aiResp.calorie_target ? aiResp.calorie_target + ' kcal/day' : '—'}</div></div></div>`
       leftMetric.appendChild(bmiBox)
+
       metrics.appendChild(leftMetric); metrics.appendChild(rightMetric)
       reportContent.appendChild(metrics)
 
-      if (aiResp.observations && aiResp.observations.length){
+      // Observations
+      if (observations.length){
         const h = document.createElement('h4'); h.textContent = 'Visible Observations'; reportContent.appendChild(h)
-        const ul = document.createElement('ul'); aiResp.observations.forEach(o => { const li = document.createElement('li'); li.textContent = o; ul.appendChild(li) })
+        const ul = document.createElement('ul')
+        observations.forEach(o => { const li = document.createElement('li'); li.textContent = o; ul.appendChild(li) })
         reportContent.appendChild(ul)
       }
 
-      if (aiResp.diet && aiResp.diet.length){
+      // Diet
+      if (diet.length){
         const h = document.createElement('h4'); h.textContent = '7-day Meal Plan'; reportContent.appendChild(h)
-        aiResp.diet.forEach(day => {
+        diet.forEach(day => {
           const box = document.createElement('div'); box.className='diet-day'
-          const dtitle = document.createElement('strong'); dtitle.textContent = day.day || 'Day'
-          box.appendChild(dtitle)
+          const dtitle = document.createElement('strong'); dtitle.textContent = day.day || 'Day'; box.appendChild(dtitle)
           const list = document.createElement('ul')
-          ['breakfast','midmorning','lunch','evening','dinner'].forEach(k => {
-            const li = document.createElement('li'); li.textContent = (day[k] ? `${k.charAt(0).toUpperCase()+k.slice(1)}: ${day[k]}` : `${k.charAt(0).toUpperCase()+k.slice(1)}: —`)
+          ;['breakfast','midmorning','lunch','evening','dinner'].forEach(k => {
+            const li = document.createElement('li'); li.textContent = (day && day[k]) ? `${k.charAt(0).toUpperCase()+k.slice(1)}: ${day[k]}` : `${k.charAt(0).toUpperCase()+k.slice(1)}: —`
             list.appendChild(li)
           })
           box.appendChild(list); reportContent.appendChild(box)
         })
       }
 
-      if (aiResp.grocery_list && aiResp.grocery_list.length){
+      // Grocery
+      if (grocery.length){
         const h = document.createElement('h4'); h.textContent = 'Grocery Suggestions'; reportContent.appendChild(h)
-        const ul = document.createElement('ul'); aiResp.grocery_list.forEach(g => { const li = document.createElement('li'); li.textContent = g; ul.appendChild(li) })
-        reportContent.appendChild(ul)
+        const ul = document.createElement('ul'); grocery.forEach(g => { const li = document.createElement('li'); li.textContent = g; ul.appendChild(li) }); reportContent.appendChild(ul)
       }
 
-      if (aiResp.macros){
+      // Macros
+      if (macros){
         const h = document.createElement('h4'); h.textContent = 'Suggested Macros'; reportContent.appendChild(h)
         const p = document.createElement('div'); p.className='small'
-        if (aiResp.macros.protein_g || aiResp.macros.protein_pct) p.innerHTML += `Protein: ${aiResp.macros.protein_g ? aiResp.macros.protein_g + ' g' : aiResp.macros.protein_pct + '%'}<br>`
-        if (aiResp.macros.carbs_g || aiResp.macros.carbs_pct) p.innerHTML += `Carbs: ${aiResp.macros.carbs_g ? aiResp.macros.carbs_g + ' g' : aiResp.macros.carbs_pct + '%'}<br>`
-        if (aiResp.macros.fats_g || aiResp.macros.fats_pct) p.innerHTML += `Fats: ${aiResp.macros.fats_g ? aiResp.macros.fats_g + ' g' : aiResp.macros.fats_pct + '%'}<br>`
+        if (macros.protein_g || macros.protein_pct) p.innerHTML += `Protein: ${macros.protein_g ? macros.protein_g + ' g' : macros.protein_pct + '%'}<br>`
+        if (macros.carbs_g || macros.carbs_pct) p.innerHTML += `Carbs: ${macros.carbs_g ? macros.carbs_g + ' g' : macros.carbs_pct + '%'}<br>`
+        if (macros.fats_g || macros.fats_pct) p.innerHTML += `Fats: ${macros.fats_g ? macros.fats_g + ' g' : macros.fats_pct + '%'}<br>`
         reportContent.appendChild(p)
       }
 
-      if (aiResp.exercises && aiResp.exercises.length){
+      // Exercises
+      if (exercises.length){
         const h = document.createElement('h4'); h.textContent = 'Exercise Suggestions'; reportContent.appendChild(h)
-        const ul = document.createElement('ul'); aiResp.exercises.forEach(e => { const li=document.createElement('li'); li.textContent=e; ul.appendChild(li) }); reportContent.appendChild(ul)
+        const ul = document.createElement('ul'); exercises.forEach(e => { const li=document.createElement('li'); li.textContent=e; ul.appendChild(li) }); reportContent.appendChild(ul)
       }
 
-      if (aiResp.follow_up && aiResp.follow_up.length){ const h = document.createElement('h4'); h.textContent='Recommended Follow-up'; reportContent.appendChild(h); const ul=document.createElement('ul'); aiResp.follow_up.forEach(f=>{ const li=document.createElement('li'); li.textContent=f; ul.appendChild(li) }); reportContent.appendChild(ul) }
-      if (aiResp.precautions && aiResp.precautions.length){ const h = document.createElement('h4'); h.textContent='Precautions'; reportContent.appendChild(h); const ul=document.createElement('ul'); aiResp.precautions.forEach(p=>{ const li=document.createElement('li'); li.textContent=p; ul.appendChild(li) }); reportContent.appendChild(ul) }
+      // Follow-up & precautions
+      if (follow_up.length){ const h = document.createElement('h4'); h.textContent='Recommended Follow-up'; reportContent.appendChild(h); const ul=document.createElement('ul'); follow_up.forEach(f=>{ const li=document.createElement('li'); li.textContent=f; ul.appendChild(li) }); reportContent.appendChild(ul) }
+      if (precautions.length){ const h = document.createElement('h4'); h.textContent='Precautions'; reportContent.appendChild(h); const ul=document.createElement('ul'); precautions.forEach(p=>{ const li=document.createElement('li'); li.textContent=p; ul.appendChild(li) }); reportContent.appendChild(ul) }
 
+      // disclaimer
       const disc = document.createElement('div'); disc.className='small'; disc.style.marginTop='12px'; disc.textContent = aiResp.disclaimer || 'This is not medical advice.'
       reportContent.appendChild(disc)
 
+      // pdf & qr
       report.style.display = 'block'
       speak('Your detailed report is ready.')
 
-      try{ createPDFAndQRDetailed(inputs, capturedDataUrl, aiResp) }catch(e){ console.warn('PDF creation failed', e) }
+      try{ createPDFAndQRDetailed(inputs, capturedDataUrl, aiResp) }catch(e){ console.warn('PDF create failed', e) }
     }
 
-    // create pdf & qr
+    // ---------- create PDF & QR (same safe style) ----------
     async function createPDFAndQRDetailed(inputs, imageDataUrl, aiResp){
       try{
         await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
@@ -419,13 +455,13 @@ Return only JSON.
         doc.setFontSize(10); doc.text(split,40,145)
         let y = 145 + split.length*12 + 8
 
-        if (aiResp.observations && aiResp.observations.length){
+        if (Array.isArray(aiResp.observations) && aiResp.observations.length){
           doc.setFontSize(11); doc.text('Observations:',40,y); y+=14
           aiResp.observations.forEach(o => { const s = doc.splitTextToSize('- '+o,520); doc.setFontSize(10); doc.text(s,40,y); y += s.length*12 })
           y += 6
         }
 
-        if (aiResp.diet && aiResp.diet.length){
+        if (Array.isArray(aiResp.diet) && aiResp.diet.length){
           doc.setFontSize(11); doc.text('7-day Diet Plan (summary):',40,y); y+=14
           aiResp.diet.forEach((day,i) => {
             const title = `${day.day || ('Day '+(i+1))}:`
@@ -441,7 +477,8 @@ Return only JSON.
         const encoded = encodeURIComponent(pdfData)
         const qrUrl = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chl='+encoded
         const qrImg = document.createElement('img'); qrImg.src = qrUrl; qrImg.style.width='140px'; qrImg.style.marginTop='12px'; reportContent.appendChild(qrImg)
-        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'; openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
+        const openBtn = document.createElement('button'); openBtn.textContent='Open Report'; openBtn.style.marginLeft='12px'
+        openBtn.addEventListener('click', ()=>{ const w = window.open(); w.document.write('<iframe src="'+pdfData+'" style="width:100%;height:100%"></iframe>') })
         reportContent.appendChild(openBtn)
       }catch(e){ console.warn('PDF/QR creation failed', e) }
     }
@@ -449,9 +486,9 @@ Return only JSON.
     function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s) }) }
     function speak(text){ try{ const s = new SpeechSynthesisUtterance(text); s.lang='en-US'; speechSynthesis.cancel(); speechSynthesis.speak(s) }catch(e){} }
 
-    closeReport.addEventListener('click', ()=>{ report.style.display='none'; message.textContent='Place the person in frame and press Capture Photo.'; collected={name:'',age:'',weight:'',height:''}; capturedDataUrl=null })
+    closeReport.addEventListener('click', ()=>{ report.style.display='none'; message.textContent='Place the person in frame and press Capture Photo.'; collected={name:'',age:'',weight:'',height:''}; capturedDataUrl=null; rawJsonToggle.style.display='none'; rawJson.style.display='none' })
 
-    // init
+    // start camera
     startCamera()
     window.addEventListener('beforeunload', ()=>{ hideLoading(); stopCamera() })
   </script>
